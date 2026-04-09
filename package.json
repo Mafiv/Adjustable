@@ -1,0 +1,42 @@
+{
+  "name": "adjustable",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && NEXT_DIST_DIR=.next-check pnpm build"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.50",
+    "@azure-rest/ai-inference": "1.0.0-beta.6",
+    "@azure/core-auth": "^1.10.1",
+    "@better-auth/mongo-adapter": "^1.5.6",
+    "ai": "^6.0.146",
+    "better-auth": "^1.5.6",
+    "mongodb": "^7.1.1",
+    "mongoose": "^9.4.1",
+    "next": "15.3.2",
+    "pdf-lib": "^1.17.1",
+    "pdf2json": "^4.0.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.3.2",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.2"
+  }
+}
