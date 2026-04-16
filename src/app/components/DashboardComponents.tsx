@@ -19,10 +19,10 @@ export function StatCard({
         background: 'white',
         borderRadius: '16px',
         border: '1px solid #e7e5e4',
-        padding: '20px 24px',
+        padding: '16px 20px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
+        gap: '4px',
         boxShadow: '0 1px 4px rgba(28,25,23,0.05)',
       }}
     >
@@ -32,7 +32,7 @@ export function StatCard({
         {label}
       </span>
       <span
-        style={{ fontSize: '32px', fontWeight: 700, letterSpacing: '-0.03em', color: accent ?? '#1c1917', lineHeight: 1 }}
+        style={{ fontSize: '32px', fontWeight: 700, letterSpacing: '-0.03em', color: accent ?? '#1c1917', lineHeight: 1, textAlign: 'left' }}
       >
         {value}
       </span>
@@ -60,8 +60,8 @@ export function QuickAction({
       style={{
         display: 'flex',
         alignItems: 'flex-start',
-        gap: '14px',
-        padding: '18px 20px',
+        gap: '12px',
+        padding: '10px 16px',
         background: 'white',
         borderRadius: '14px',
         border: '1px solid #e7e5e4',
@@ -84,8 +84,8 @@ export function QuickAction({
     >
       <span
         style={{
-          width: '38px',
-          height: '38px',
+          width: '36px',
+          height: '36px',
           borderRadius: '10px',
           background: '#f2ebe0',
           display: 'flex',

@@ -12,11 +12,18 @@ async function saveProfileAction(
     const education: Array<{ degree: string; institution: string; year: string }> = [];
     let i = 0;
     while (fd.has(`edu_deg_${i}`)) {
-      education.push({
-        degree:      fd.get(`edu_deg_${i}`)      as string ?? '',
-        institution: fd.get(`edu_inst_${i}`)     as string ?? '',
-        year:        fd.get(`edu_year_${i}`)     as string ?? '',
-      });
+      const degreeRaw = fd.get(`edu_deg_${i}`);
+      const institutionRaw = fd.get(`edu_inst_${i}`);
+      const yearRaw = fd.get(`edu_year_${i}`);
+
+      const degree = typeof degreeRaw === 'string' ? degreeRaw.trim() : '';
+      const institution = typeof institutionRaw === 'string' ? institutionRaw.trim() : '';
+      const year = typeof yearRaw === 'string' ? yearRaw.trim() : '';
+
+      // Avoid persisting empty placeholder rows.
+      if (degree || institution || year) {
+        education.push({ degree, institution, year });
+      }
       i++;
     }
 

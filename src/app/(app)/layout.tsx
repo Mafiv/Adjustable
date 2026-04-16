@@ -1,6 +1,7 @@
 import { requireSessionUser } from '@/lib/auth-session';
 import { redirect } from 'next/navigation';
 import AppNav from '@/app/components/AppNav';
+import AppShell, { AppMain } from '@/app/components/AppShell';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,18 +17,9 @@ export default async function AppLayout({
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <AppShell>
       <AppNav />
-      <main
-        style={{
-          flex: 1,
-          marginLeft: '220px',
-          minHeight: '100vh',
-          background: '#faf6f0',
-        }}
-      >
-        {children}
-      </main>
-    </div>
+      <AppMain>{children}</AppMain>
+    </AppShell>
   );
 }

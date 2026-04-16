@@ -18,6 +18,7 @@
     "@better-auth/mongo-adapter": "^1.5.6",
     "ai": "^6.0.146",
     "better-auth": "^1.5.6",
+    "framer-motion": "^12.38.0",
     "mongodb": "^7.1.1",
     "mongoose": "^9.4.1",
     "next": "15.3.2",

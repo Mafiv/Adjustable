@@ -17,9 +17,9 @@ export default async function DashboardPage() {
   const genTotal = generations?.total ?? 0;
 
   return (
-    <div style={{ padding: '36px 40px', maxWidth: '900px' }}>
+    <div style={{ padding: '24px 32px', maxWidth: '900px' }}>
       {/* Header */}
-      <div style={{ marginBottom: '32px' }}>
+      <div style={{ marginBottom: '24px', paddingBottom: '8px' }}>
         <p
           style={{
             fontSize: '11px',
@@ -42,9 +42,9 @@ export default async function DashboardPage() {
         >
           Your Portfolio Vault
         </h1>
-        <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#78716c', maxWidth: '480px', lineHeight: 1.5 }}>
-          Ingest raw experience, then generate tailored portfolio drafts for any job description using vector search and GPT-4.
-        </p>
+        {/* <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#78716c', maxWidth: '680px', lineHeight: 1.5 }}>
+          Ingest your experience, then generate tailored portfolio drafts for any job description using AI and vector search.
+        </p> */}
       </div>
 
       {/* Stats */}
@@ -53,7 +53,7 @@ export default async function DashboardPage() {
           display: 'grid',
           gridTemplateColumns: 'repeat(3, 1fr)',
           gap: '14px',
-          marginBottom: '32px',
+          marginBottom: '20px',
         }}
       >
         <StatCard label="Vault Items" value={vaultTotal} sub="projects stored" accent="#b87a38" />
@@ -77,8 +77,9 @@ export default async function DashboardPage() {
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '12px',
-          marginBottom: '36px',
+          rowGap: '16px',
+          columnGap: '20px',
+          marginBottom: '40px',
         }}
       >
         <QuickAction
@@ -134,7 +135,7 @@ export default async function DashboardPage() {
               View all →
             </Link>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
             {recentProjects.map((project) => (
               <div
                 key={project.id}
@@ -142,10 +143,11 @@ export default async function DashboardPage() {
                   display: 'flex',
                   alignItems: 'flex-start',
                   gap: '14px',
-                  padding: '14px 18px',
+                  padding: '14px 20px',
                   background: 'white',
                   borderRadius: '12px',
                   border: '1px solid #e7e5e4',
+                  margin: '0 0 12px 0',
                 }}
               >
                 <div
@@ -169,11 +171,11 @@ export default async function DashboardPage() {
                   <p style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#1c1917', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {project.title}
                   </p>
-                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#78716c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#78716c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: '0.3px' }}>
                     {project.description}
                   </p>
                   {project.techStack.length > 0 && (
-                    <div style={{ display: 'flex', gap: '5px', marginTop: '6px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
                       {project.techStack.slice(0, 4).map((t: string) => (
                         <span
                           key={t}
@@ -212,12 +214,12 @@ export default async function DashboardPage() {
               View all →
             </Link>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
             {recentGenerations.map((gen) => (
               <div
                 key={gen.id}
                 style={{
-                  padding: '14px 18px',
+                  padding: '14px 20px',
                   background: 'white',
                   borderRadius: '12px',
                   border: '1px solid #e7e5e4',
@@ -225,6 +227,7 @@ export default async function DashboardPage() {
                   alignItems: 'flex-start',
                   justifyContent: 'space-between',
                   gap: '12px',
+                  margin: '0 0 12px 0',
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>

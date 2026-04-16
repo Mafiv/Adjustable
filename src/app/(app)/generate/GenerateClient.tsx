@@ -156,8 +156,8 @@ export default function GenerateClient({
   const result = genState.status === 'success' && genState.data ? (genState.data as GenResult) : null;
 
   return (
-    <div style={{ padding: '36px 40px', maxWidth: '860px' }}>
-      <div style={{ marginBottom: '28px' }}>
+    <div style={{ padding: '24px 32px', maxWidth: '860px' }}>
+      <div style={{ marginBottom: '24px' }}>
         <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.35em', color: '#a8a29e', margin: '0 0 6px' }}>Generate</p>
         <h1 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.03em', color: '#1c1917', margin: 0 }}>
           Portfolio Generator
@@ -190,21 +190,6 @@ export default function GenerateClient({
               />
             </label>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#44403c' }}>
-                Output format
-                <select name="outputFormat" defaultValue="sections" style={inputStyle}>
-                  <option value="sections">Sections</option>
-                  <option value="resume">Resume bullets</option>
-                  <option value="json">JSON</option>
-                  <option value="markdown">Markdown</option>
-                </select>
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#44403c' }}>
-                Top K results
-                <input name="topK" type="number" min={1} max={20} defaultValue={5} style={inputStyle} />
-              </label>
-            </div>
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#44403c' }}>
               Must-have skills (comma separated)
@@ -277,7 +262,7 @@ export default function GenerateClient({
             >
               <div style={{ fontSize: '32px', marginBottom: '12px', animation: 'spin 2s linear infinite' }}>⚙️</div>
               <p style={{ fontSize: '14px', fontWeight: 600, color: '#1c1917', margin: '0 0 4px' }}>Generating portfolio{dots}</p>
-              <p style={{ fontSize: '13px', color: '#78716c', margin: 0 }}>Searching vault and drafting content with GPT-4…</p>
+              <p style={{ fontSize: '13px', color: '#78716c', margin: 0 }}>Searching vault and drafting content …</p>
             </div>
           )}
 

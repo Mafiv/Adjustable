@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { connectToDatabase } from '@/lib/db';
 import { PortfolioFeedback, PortfolioGeneration, Project, UserProfile } from '@/lib/db/models';
 import crypto from 'crypto';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, PDFName, PDFString } from 'pdf-lib';
 import { Types } from 'mongoose';
 import { requireSessionUser } from '@/lib/auth-session';
 import { revalidatePath } from 'next/cache';
@@ -84,6 +84,11 @@ const updateProjectSchema = z.object({
   impactScore: z.number().int().min(1).max(10),
 });
 
+const skillCategorySchema = z.object({
+  category: z.string(),
+  skills: z.array(z.string()),
+});
+
 const generationOutputSchema = z.object({
   summary: z.string(),
   sections: z.array(
@@ -95,6 +100,7 @@ const generationOutputSchema = z.object({
   resumeBullets: z.array(z.string()).optional(),
   markdown: z.string().optional(),
   keywords: z.array(z.string()),
+  skillCategories: z.array(skillCategorySchema).optional(),
   sources: z.array(
     z.object({
       projectId: z.string(),
@@ -117,6 +123,7 @@ const generationOutputLooseSchema = z.object({
   resumeBullets: z.array(z.string()).optional(),
   markdown: z.string().optional(),
   keywords: z.array(z.string()).optional(),
+  skillCategories: z.array(skillCategorySchema.partial()).optional(),
   sources: z
     .array(
       z.object({
@@ -570,12 +577,22 @@ function normalizeGenerationOutput(
       ),
     ].join('\n\n');
 
+  // Normalize skill categories from AI output
+  const skillCategories = (output.skillCategories ?? [])
+    .filter((cat) => cat.category?.trim() && (cat.skills ?? []).length > 0)
+    .map((cat) => ({
+      category: cat.category!.trim(),
+      skills: (cat.skills ?? []).map((s) => s.trim()).filter(Boolean),
+    }))
+    .slice(0, 10);
+
   return generationOutputSchema.parse({
     summary,
     sections: ensuredSections,
     resumeBullets: resumeBullets.length > 0 ? resumeBullets : undefined,
     markdown,
     keywords: keywords.length > 0 ? keywords : ['portfolio'],
+    skillCategories: skillCategories.length > 0 ? skillCategories : undefined,
     sources: ensuredSources,
     rationale:
       output.rationale?.map((item) => item.trim()).filter(Boolean).slice(0, 20) || undefined,
@@ -847,9 +864,12 @@ export async function shredResumeToVault(input: unknown) {
         prompt: [
           'Extract personal information from this resume text.',
           'Infer the candidate name from the resume header even if the label "full name" is not explicitly written.',
+          'IMPORTANT: Return the name as a clean full name only — no job titles, no extra words. Example: "Abdi Sileshi Worku", NOT "Abdi Sileshi Worku Software".',
           'Prioritize contact/header details: name, title, email, phone, location, linkedin, portfolio.',
           'Return only the information that is explicitly present in the resume.',
+          'For phone numbers, normalize to international format with spaces: e.g. "+251 988 734 632".',
           'For education, extract all degrees with their institutions and years.',
+          'IMPORTANT: Fix common typos in education data — e.g. "unversity" → "University", "Engginering" → "Engineering", "AdamaScience" → "Adama Science".',
           'For links (linkedin, portfolio), return only the URL or username.',
           `Resume:\n${resumeText.slice(0, 15000)}`,
         ].join('\n'),
@@ -859,20 +879,25 @@ export async function shredResumeToVault(input: unknown) {
       const heuristics = extractPersonalInfoHeuristics(resumeText);
       const existingProfile = await UserProfile.findOne({ userId }).lean();
 
-      const mergedEducation =
-        Array.isArray(existingProfile?.education) && existingProfile.education.length > 0
-          ? existingProfile.education.map((edu) => ({
-              degree: firstNonEmpty((edu as { degree?: string }).degree),
-              institution: firstNonEmpty((edu as { institution?: string }).institution),
-              year: firstNonEmpty((edu as { year?: string }).year),
-            }))
-          : (personalInfo.education ?? [])
-              .map((edu) => ({
-                degree: firstNonEmpty(edu.degree),
-                institution: firstNonEmpty(edu.institution),
-                year: firstNonEmpty(edu.year),
-              }))
-              .filter((edu) => edu.degree || edu.institution || edu.year);
+      const existingEducation =
+        ((existingProfile?.education as Array<{ degree?: string; institution?: string; year?: string }> | undefined)
+          ?? [])
+          .map((edu) => ({
+            degree: firstNonEmpty(edu.degree),
+            institution: firstNonEmpty(edu.institution),
+            year: firstNonEmpty(edu.year),
+          }))
+          .filter((edu) => edu.degree || edu.institution || edu.year);
+
+      const extractedEducation = (personalInfo.education ?? [])
+        .map((edu) => ({
+          degree: firstNonEmpty(edu.degree),
+          institution: firstNonEmpty(edu.institution),
+          year: firstNonEmpty(edu.year),
+        }))
+        .filter((edu) => edu.degree || edu.institution || edu.year);
+
+      const mergedEducation = existingEducation.length > 0 ? existingEducation : extractedEducation;
 
       const mergedProfile = {
         name: firstNonEmpty(
@@ -1063,24 +1088,30 @@ export async function generatePortfolioFromJob(input: unknown) {
     const prompt = [
       'You are an expert resume designer and ATS optimization specialist.',
       'Your task is to generate a job-specific, ATS-optimized CV draft based on the user project vault.',
+      '',
       '### CORE RULES:',
       '- Only include relevant information that matches the job description.',
       '- Do NOT invent skills or experience. Stay grounded in the user payload.',
-      '- Use strong action verbs (Built, Designed, Optimized, Led).',
-      '- Quantify achievements whenever possible (e.g., Improved performance by 30%).',
-      '- Focus on impact and results, not just responsibilities.',
-      '- Keep bullet points concise and high-impact.',
+      '- Use strong action verbs (Built, Designed, Optimized, Led, Resolved, Integrated).',
+      '- Quantify achievements with REAL measurable impact (e.g., "Improved API response time by 40%", "Reduced production bugs by 60%").',
+      '- Focus on IMPACT and OUTCOMES, not generic responsibilities.',
+      '- Keep bullet points concise, specific, and high-impact.',
+      '- AVOID generic buzzwords like "Proven ability", "results-driven professional". Be specific.',
       '',
       `### JOB DESCRIPTION:\n${jobDescription}`,
       '',
       '### OBJECTIVES:',
-      '1. SUMMARY: A 2-4 line professional profile tailored to this role.',
-      '2. SECTIONS: Group matched projects into logical experience blocks. Each block should have a job/project title and high-impact bullet points.',
-      '3. KEYWORDS: Extract and include matching technical skills and tools from the JD.',
+      '1. SUMMARY: A 2-4 line professional profile that is SPECIFIC and OUTCOME-FOCUSED. Mention the exact stack, domain, and scale of work. Example: "Full-stack developer specializing in Next.js and Express.js, focused on building and debugging SaaS platforms with real-time AI integrations. Experienced in optimizing API performance and improving dashboard responsiveness in production systems."',
+      '2. SECTIONS: Group matched projects into logical experience blocks. Each block MUST have:',
+      '   - A clear, descriptive project/role name (e.g., "SaaS AI Debugging & Optimization")',
+      '   - High-impact bullet points with measurable outcomes',
+      '   - Start each bullet with a strong action verb + specific result',
+      '3. KEYWORDS: Extract matching technical skills and tools from the JD.',
+      '4. SKILL_CATEGORIES: Group the extracted keywords into categories. Use these category names: "Frontend", "Backend", "Database", "AI / Tools", "Engineering", "Cloud / DevOps", "Other". Each category should have a "category" (string) and "skills" (string array). Only include categories that have matching skills.',
       '',
       `### FORMAT: ${outputFormat}`,
       includeRationale ? '- Include rationale statements in the rationale array explaining why certain projects were selected.' : '',
-      'Return a JSON object matching the requested schema.',
+      'Return a JSON object matching the requested schema. Include the "skillCategories" array.',
       `### USER DATA PAYLOAD:\n${JSON.stringify(promptPayload)}`,
     ].join('\n');
 
@@ -1256,6 +1287,28 @@ export async function exportPortfolioPdf(input: unknown) {
       cursorY -= opts.size + opts.gapBelow;
     }
 
+    function drawCenteredLine(text: string, opts: { font: typeof fReg; size: number; color: ReturnType<typeof rgb>; maxWidth: number; gapBelow: number }) {
+      const t = fitText(text, opts.font, opts.size, opts.maxWidth);
+      if (!t) return;
+      ensureRoom(opts.size + opts.gapBelow + 2);
+      const width = opts.font.widthOfTextAtSize(t, opts.size);
+      const x = Math.max(ML, ML + (CW - width) / 2);
+      page.drawText(t, { x, y: cursorY, size: opts.size, font: opts.font, color: opts.color });
+      cursorY -= opts.size + opts.gapBelow;
+    }
+
+    function formatContactValue(value: string) {
+      const trimmed = value.trim();
+      if (!trimmed) return '';
+
+      return trimmed
+        .replace(/^mailto:/i, '')
+        .replace(/^tel:/i, '')
+        .replace(/^https?:\/\//i, '')
+        .replace(/^www\./i, '')
+        .replace(/\/+$/, '');
+    }
+
     /** Draw a full-width horizontal rule. */
     function drawRule(thickness = 0.6, color = cRule) {
       page.drawLine({
@@ -1344,48 +1397,140 @@ export async function exportPortfolioPdf(input: unknown) {
 
     // ── SECTION 1 — Header ───────────────────────────────────────────────
 
-    // Accent top bar (5pt tall)
-    page.drawRectangle({ x: 0, y: PAGE_H - 4, width: PAGE_W, height: 4, color: cAccent });
-
-    // Full name (or fallback title)
-    const displayName = profile.name.trim() || 'Portfolio Resume';
-    page.drawText(displayName, {
-      x: ML, y: cursorY,
-      size: S.name, font: fBold, color: cDark,
+    // Clean professional header: Name (uppercase, bold, centered)
+    const rawName = profile.name.trim();
+    // Strip accidental trailing words that match the job title to avoid "ABDI WORKU SOFTWARE" duplication
+    let cleanName = rawName;
+    if (rawName && profile.title.trim()) {
+      const titleWords = profile.title.trim().toLowerCase().split(/\s+/);
+      const nameWords = rawName.split(/\s+/);
+      // If the last word(s) of the name match the first word of the title, remove them
+      while (
+        nameWords.length > 2 &&
+        titleWords.includes(nameWords[nameWords.length - 1].toLowerCase())
+      ) {
+        nameWords.pop();
+      }
+      cleanName = nameWords.join(' ');
+    }
+    const displayName = cleanName || 'Portfolio Resume';
+    const displayHeaderName = displayName === 'Portfolio Resume'
+      ? displayName
+      : displayName.toUpperCase();
+    drawCenteredLine(displayHeaderName, {
+      font: fBold,
+      size: S.name + 1,
+      color: cDark,
+      maxWidth: CW,
+      gapBelow: 6,
     });
-    cursorY -= 24;
 
-    // Job title line
+    // Job title directly under name (slightly smaller, regular weight).
     if (profile.title.trim()) {
-      page.drawText(profile.title.trim(), {
-        x: ML, y: cursorY,
-        size: S.title, font: fReg, color: cAccent,
+      drawCenteredLine(profile.title.trim(), {
+        font: fReg,
+        size: S.title + 2,
+        color: cMid,
+        maxWidth: CW,
+        gapBelow: 12,
       });
-      cursorY -= 15;
     }
 
-    // Socials line — email · LinkedIn · portfolio/GitHub · phone
-    const socialsParts: string[] = [];
-    if (profile.email.trim()) socialsParts.push(profile.email.trim());
-    if (profile.linkedin.trim()) socialsParts.push(profile.linkedin.trim());
-    if (profile.portfolio.trim()) socialsParts.push(profile.portfolio.trim());
-    if (profile.phone.trim()) socialsParts.push(profile.phone.trim());
-    if (socialsParts.length > 0) {
-      drawSingleLine(socialsParts.join('  ·  '), {
-        font: fReg,
-        size: S.meta,
-        color: cMid,
-        x: ML,
-        maxWidth: CW,
-        gapBelow: 6,
-      });
-      cursorY -= 2;
+    // Contact details — each on its own clean line, centered, with clickable links
+    const contactItems: Array<{ text: string; link?: string }> = [];
+    if (profile.phone.trim()) {
+      let phoneVal = formatContactValue(profile.phone);
+      const digits = phoneVal.replace(/\D/g, '');
+      if (digits.length >= 9 && !phoneVal.startsWith('+')) {
+        phoneVal = '+' + phoneVal.replace(/^0+/, '');
+      }
+      const d = phoneVal.replace(/\D/g, '');
+      if (d.length >= 9) {
+        phoneVal = '+' + d.replace(/(\d{3})(?=\d)/g, '$1 ').trim();
+      }
+      contactItems.push({ text: phoneVal, link: `tel:${phoneVal.replace(/\s+/g, '')}` });
+    }
+    if (profile.email.trim()) {
+      const emailVal = formatContactValue(profile.email);
+      contactItems.push({ text: emailVal, link: `mailto:${emailVal}` });
+    }
+    if (profile.linkedin.trim()) {
+      const lnVal = formatContactValue(profile.linkedin);
+      let lnLink = lnVal;
+      if (!lnLink.startsWith('http')) lnLink = 'https://' + lnLink;
+      contactItems.push({ text: lnVal, link: lnLink });
+    }
+    if (profile.portfolio.trim()) {
+      const portVal = formatContactValue(profile.portfolio);
+      const portLower = portVal.toLowerCase();
+      // Filter out redundant domains or snippets that look like they came from the email
+      const isCommonDomain = ['gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com'].includes(portLower);
+      const isPartOfEmail = profile.email.toLowerCase().includes(portLower);
+      if (!isCommonDomain && !isPartOfEmail && portVal.length >= 4) {
+        let portLink = portVal;
+        if (!portLink.startsWith('http')) portLink = 'https://' + portLink;
+        contactItems.push({ text: portVal, link: portLink });
+      }
+    }
+
+    if (contactItems.length > 0) {
+      const size = S.meta + 0.5;
+      const gapBelow = 10;
+      const separator = '  |  ';
+      const sepWidth = fReg.widthOfTextAtSize(separator, size);
+      
+      let totalWidth = 0;
+      for (let i = 0; i < contactItems.length; i++) {
+        totalWidth += fReg.widthOfTextAtSize(contactItems[i].text, size);
+        if (i < contactItems.length - 1) totalWidth += sepWidth;
+      }
+
+      ensureRoom(size + gapBelow + 2);
+      
+      let curX = Math.max(ML, ML + (CW - totalWidth) / 2);
+      
+      for (let i = 0; i < contactItems.length; i++) {
+        const item = contactItems[i];
+        const itemWidth = fReg.widthOfTextAtSize(item.text, size);
+        
+        // Draw segment text
+        page.drawText(item.text, { x: curX, y: cursorY, size, font: fReg, color: cMid });
+        
+        // Add link annotation if present
+        if (item.link) {
+          const linkAnnot = pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Link',
+            Rect: [curX, cursorY - 2, curX + itemWidth, cursorY + size + 2],
+            Border: [0, 0, 0],
+            A: {
+              Type: 'Action',
+              S: 'URI',
+              URI: PDFString.of(item.link),
+            },
+          });
+          const annots = page.node.get(PDFName.of('Annots')) || pdf.context.obj([]);
+          const annotsArray = pdf.context.lookup(annots);
+          if (annotsArray && 'push' in annotsArray) {
+            (annotsArray as any).push(linkAnnot);
+          } else {
+            page.node.set(PDFName.of('Annots'), pdf.context.obj([linkAnnot]));
+          }
+        }
+        
+        curX += itemWidth;
+        if (i < contactItems.length - 1) {
+          page.drawText(separator, { x: curX, y: cursorY, size, font: fReg, color: cMid });
+          curX += sepWidth;
+        }
+      }
+      cursorY -= size + gapBelow;
     }
 
     // Header divider
     cursorY -= 4;
     drawRule(0.8, cRule);
-    cursorY -= 16;
+    cursorY -= 14;
 
     // ── SECTION 2 — Summary ──────────────────────────────────────────────
     // Prefer AI-generated summary; fall back to profile bio; skip generic fallbacks
@@ -1401,7 +1546,46 @@ export async function exportPortfolioPdf(input: unknown) {
     }
 
     // ── SECTION 3 — Skills & Keywords ────────────────────────────────────
-    if (content.keywords && content.keywords.length > 0) {
+    const contentWithCategories = content as unknown as {
+      summary?: string;
+      sections?: Array<{ title?: string; bullets?: string[] }>;
+      resumeBullets?: string[];
+      keywords?: string[];
+      skillCategories?: Array<{ category?: string; skills?: string[] }>;
+    };
+    const skillCategories = (contentWithCategories.skillCategories ?? [])
+      .filter((cat) => cat.category && cat.skills && cat.skills.length > 0);
+
+    if (skillCategories.length > 0) {
+      // Grouped skills rendering
+      drawSectionHeader('Technical Skills');
+      for (const cat of skillCategories) {
+        const catName = (cat.category ?? 'Other').trim();
+        const skills = (cat.skills ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 15);
+        if (skills.length === 0) continue;
+
+        // Category label (bold) followed by skills on the same line
+        const labelText = `${catName}:`;
+        const labelWidth = fBold.widthOfTextAtSize(labelText, S.body);
+        const skillsText = skills.join(', ');
+        const skillsX = ML + labelWidth + 6;
+        const skillsMaxW = CW - labelWidth - 6;
+
+        ensureRoom(S.body + 8);
+        page.drawText(labelText, { x: ML, y: cursorY, size: S.body, font: fBold, color: cDark });
+        const skillLines = wrapText(skillsText, fReg, S.body, skillsMaxW);
+        for (let i = 0; i < skillLines.length; i++) {
+          if (i > 0) {
+            cursorY -= S.body + 3;
+            ensureRoom(S.body + 3);
+          }
+          page.drawText(skillLines[i], { x: i === 0 ? skillsX : ML + 12, y: cursorY, size: S.body, font: fReg, color: cDark });
+        }
+        cursorY -= S.body + 6;
+      }
+      cursorY -= 1;
+    } else if (content.keywords && content.keywords.length > 0) {
+      // Fallback: flat keywords list (legacy behavior)
       drawSectionHeader('Technical Skills');
       const skillsLine = content.keywords
         .map((k) => k.trim())
@@ -1461,16 +1645,18 @@ export async function exportPortfolioPdf(input: unknown) {
 
         if (!name && bullets.length === 0) continue;
 
-        drawLeftRightLine({ left: name || 'Project', right: duration, sizeLeft: S.subhead, fontLeft: fBold, gapBelow: 4 });
+        // Project name + duration on the same line
+        drawLeftRightLine({ left: name || 'Project', right: duration, sizeLeft: S.subhead, fontLeft: fBold, gapBelow: 2 });
+        // Tech stack on its own line with parentheses for clarity
         if (tech.length > 0) {
-          const techLine = tech.slice(0, 18).join('  •  ');
-          drawBlock(techLine, fReg, S.meta, cMid, ML, CW, 3);
+          const techLine = tech.slice(0, 18).join(' + ');
+          drawBlock(`Stack: ${techLine}`, fReg, S.meta, cAccent, ML, CW, 3);
           cursorY -= 2;
         }
-        for (const bullet of bullets.slice(0, 3)) {
+        for (const bullet of bullets.slice(0, 4)) {
           drawBullet(bullet);
         }
-        cursorY -= 2;
+        cursorY -= 4;
       }
     }
 
@@ -1501,18 +1687,18 @@ export async function exportPortfolioPdf(input: unknown) {
 
         if (!name && bullets.length === 0) continue;
 
-        drawLeftRightLine({ left: name || 'Project', right: duration, sizeLeft: S.subhead, fontLeft: fBold, gapBelow: 4 });
+        drawLeftRightLine({ left: name || 'Project', right: duration, sizeLeft: S.subhead, fontLeft: fBold, gapBelow: 2 });
         if (tech.length > 0) {
-          const techLine = tech.map((t) => t.trim()).filter(Boolean).slice(0, 18).join('  •  ');
+          const techLine = tech.map((t) => t.trim()).filter(Boolean).slice(0, 18).join(' + ');
           if (techLine) {
-            drawBlock(techLine, fReg, S.meta, cMid, ML, CW, 3);
+            drawBlock(`Stack: ${techLine}`, fReg, S.meta, cAccent, ML, CW, 3);
             cursorY -= 2;
           }
         }
         for (const bullet of bullets.slice(0, 4)) {
           drawBullet(bullet);
         }
-        cursorY -= 2;
+        cursorY -= 4;
       }
     }
 

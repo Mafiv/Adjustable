@@ -1,11 +1,10 @@
 'use client';
 
 import { useActionState, useMemo, useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 type ActionState = { status: 'idle' | 'success' | 'error'; message?: string; data?: unknown };
 const init: ActionState = { status: 'idle' };
-
-
 
 type ShredResult = {
   extractionMode?: string;
@@ -28,64 +27,122 @@ type AddResult = {
   duplicate?: boolean;
 };
 
+const StatCard = ({ label, value, color = '#15803d' }: { label: string; value: number; color?: string }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    className="flex-1 min-w-[80px]"
+  >
+    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-1">{label}</p>
+    <p className="text-2xl font-bold" style={{ color }}>
+      {value ?? 0}
+    </p>
+  </motion.div>
+);
+
+const TechBadge = ({ tech }: { tech: string }) => (
+  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+    {tech}
+  </span>
+);
+
+const ImpactBadge = ({ score }: { score: number }) => (
+  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+    ⚡ {score}
+  </span>
+);
+
 function ResultContent({ data }: { data: unknown }) {
   const d = data as ShredResult & AddResult;
+  
   if (d.entities && Array.isArray(d.entities)) {
     return (
-      <div>
-        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '12px' }}>
-          {(
-            [
-              ['Extracted', d.extractedCount],
-              ['Accepted', d.qualityAcceptedCount],
-              ['Skipped (dup)', d.duplicateSkippedCount],
-              ['Inserted', d.insertedCount],
-            ] as [string, number | undefined][]
-          ).map(([label, val]) => (
-            <div key={label}>
-              <p style={{ fontSize: '11px', color: '#6b7280', margin: 0 }}>{label}</p>
-              <p style={{ fontSize: '22px', fontWeight: 700, color: '#15803d', margin: 0 }}>{val ?? 0}</p>
-            </div>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="space-y-4"
+      >
+        <div className="flex flex-wrap gap-4 pb-3 border-b border-emerald-200">
+          <StatCard label="Extracted" value={d.extractedCount || 0} />
+          <StatCard label="Quality Accepted" value={d.qualityAcceptedCount || 0} color="#ea580c" />
+          <StatCard label="Duplicates Skipped" value={d.duplicateSkippedCount || 0} color="#6b7280" />
+          <StatCard label="Inserted" value={d.insertedCount || 0} color="#059669" />
+        </div>
+        
+        <div className="flex items-center gap-2 text-xs text-emerald-800 bg-emerald-50 p-2 rounded-lg">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span>Header extraction: {d.personalInfoExtracted ? '✓ detected' : '○ not detected'}</span>
+          <span className="w-px h-3 bg-emerald-200" />
+          <span>Profile auto-fill: {d.profileAutoUpdated ? '✓ updated' : '○ no changes'}</span>
+        </div>
+        
+        <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
+          {d.entities.map((e, idx) => (
+            <motion.div
+              key={e.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: idx * 0.05 }}
+              className="p-3 bg-white rounded-lg border border-emerald-100 hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div className="flex-1">
+                  <span className="font-semibold text-emerald-900">{e.title}</span>
+                  {e.techStack && e.techStack.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {e.techStack.map(tech => (
+                        <TechBadge key={tech} tech={tech} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {e.impactScore && <ImpactBadge score={e.impactScore} />}
+              </div>
+            </motion.div>
           ))}
         </div>
-        <div style={{ marginBottom: '10px', fontSize: '12px', color: '#14532d' }}>
-          Header extraction: {d.personalInfoExtracted ? 'detected' : 'not detected'}
-          {' · '}
-          Profile auto-fill: {d.profileAutoUpdated ? 'updated' : 'no changes'}
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {d.entities.map((e) => (
-            <div key={e.id} style={{ padding: '8px 12px', background: 'white', borderRadius: '8px', border: '1px solid #d1fae5', fontSize: '13px' }}>
-              <span style={{ fontWeight: 600, color: '#064e3b' }}>{e.title}</span>
-              {e.techStack && e.techStack.length > 0 && (
-                <span style={{ marginLeft: '8px', color: '#6b7280' }}>{e.techStack.join(', ')}</span>
-              )}
-              {e.impactScore && (
-                <span style={{ marginLeft: '8px', fontWeight: 700, color: '#15803d' }}>⚡{e.impactScore}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+      </motion.div>
     );
   }
+  
   if (d.id) {
     return (
-      <div>
-        <p style={{ fontSize: '13px', fontWeight: 700, color: '#064e3b', margin: '0 0 4px' }}>{d.title}</p>
-        {d.description && <p style={{ fontSize: '13px', color: '#374151', margin: '0 0 8px' }}>{d.description}</p>}
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {d.techStack?.map((t: string) => (
-            <span key={t} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '20px', background: '#dcfce7', color: '#15803d', fontWeight: 500 }}>{t}</span>
-          ))}
-        </div>
-        {d.duplicate && (
-          <p style={{ fontSize: '12px', color: '#b45309', marginTop: '8px' }}>⚠️ This project was already in your vault (duplicate skipped).</p>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-3"
+      >
+        <h4 className="font-bold text-emerald-900 text-lg">{d.title}</h4>
+        {d.description && (
+          <p className="text-sm text-gray-700 leading-relaxed">{d.description}</p>
         )}
-      </div>
+        {d.techStack && d.techStack.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {d.techStack.map(tech => (
+              <TechBadge key={tech} tech={tech} />
+            ))}
+          </div>
+        )}
+        {d.tags && d.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {d.tags.map(tag => (
+              <span key={tag} className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+        {d.duplicate && (
+          <div className="flex items-center gap-2 text-amber-700 bg-amber-50 p-2 rounded-lg text-sm">
+            <span>⚠️</span>
+            <span>This project was already in your vault (duplicate skipped).</span>
+          </div>
+        )}
+      </motion.div>
     );
   }
-  return <pre style={{ fontSize: '12px', whiteSpace: 'pre-wrap', margin: 0 }}>{JSON.stringify(data, null, 2)}</pre>;
+  
+  return <pre className="text-xs whitespace-pre-wrap overflow-auto">{JSON.stringify(data, null, 2)}</pre>;
 }
 
 function ResultPanel({ state, title }: { state: ActionState; title: string }) {
@@ -93,21 +150,28 @@ function ResultPanel({ state, title }: { state: ActionState; title: string }) {
   const isError = state.status === 'error';
 
   return (
-    <div
-      style={{
-        marginTop: '20px',
-        borderRadius: '12px',
-        border: `1px solid ${isError ? '#fecaca' : '#bbf7d0'}`,
-        background: isError ? '#fef2f2' : '#f0fdf4',
-        padding: '16px',
-      }}
-    >
-      <p style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: isError ? '#b91c1c' : '#15803d', margin: '0 0 8px' }}>
-        {isError ? 'Error' : title}
-      </p>
-      {state.message && <p style={{ fontSize: '13px', color: '#b91c1c', margin: '0 0 8px' }}>{state.message}</p>}
-      {!isError && state.data ? <ResultContent data={state.data} /> : null}
-    </div>
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: 'auto' }}
+        exit={{ opacity: 0, height: 0 }}
+        className={`mt-5 rounded-xl border p-4 ${
+          isError 
+            ? 'bg-red-50 border-red-200' 
+            : 'bg-emerald-50 border-emerald-200'
+        }`}
+      >
+        <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${
+          isError ? 'text-red-700' : 'text-emerald-700'
+        }`}>
+          {isError ? '❌ Error' : `✓ ${title}`}
+        </p>
+        {state.message && (
+          <p className="text-sm text-red-600 mb-2">{state.message}</p>
+        )}
+        {!isError && state.data && <ResultContent data={state.data} />}
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
@@ -119,8 +183,9 @@ export default function IngestClient({
   addProjectAction: (prev: ActionState, fd: FormData) => Promise<ActionState>;
 }) {
   const [shredState, shredAction, isShredPending] = useActionState(shredResumeAction, init);
-  const [addState, addAction] = useActionState(addProjectAction, init);
+  const [addState, addAction, isAddPending] = useActionState(addProjectAction, init);
   const [shredProgress, setShredProgress] = useState(0);
+  const [activeTab, setActiveTab] = useState<'resume' | 'project'>('resume');
 
   useEffect(() => {
     if (!isShredPending) {
@@ -146,185 +211,254 @@ export default function IngestClient({
 
   const shredPhaseLabel = useMemo(() => {
     if (!isShredPending) return '';
-    if (shredProgress < 18) return 'Uploading file';
-    if (shredProgress < 45) return 'Parsing resume';
-    if (shredProgress < 75) return 'Extracting entities';
-    return 'Embedding and saving';
+    if (shredProgress < 18) return '📤 Uploading file';
+    if (shredProgress < 45) return '🔍 Parsing resume';
+    if (shredProgress < 75) return '🧩 Extracting entities';
+    return '💾 Embedding and saving';
   }, [isShredPending, shredProgress]);
 
-  const inputStyle: React.CSSProperties = {
-    borderRadius: '10px',
-    border: '1px solid #d6d3d1',
-    background: 'white',
-    padding: '9px 14px',
-    fontSize: '14px',
-    color: '#1c1917',
-    width: '100%',
-    outline: 'none',
-    transition: 'border-color 0.15s',
-  };
-
-  const btnStyle: React.CSSProperties = {
-    padding: '10px 22px',
-    borderRadius: '999px',
-    background: '#1c1917',
-    color: 'white',
-    fontSize: '14px',
-    fontWeight: 600,
-    border: 'none',
-    cursor: 'pointer',
-    transition: 'opacity 0.15s',
-  };
-
   return (
-    <div style={{ padding: '36px 40px', maxWidth: '820px' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.35em', color: '#a8a29e', margin: '0 0 6px' }}>
-          Ingest
-        </p>
-        <h1 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.03em', color: '#1c1917', margin: 0 }}>
-          Add to Your Vault
-        </h1>
-        <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#78716c' }}>
-          Two ways to grow your vault: shred an entire resume or add individual projects.
-        </p>
-      </div>
-
-      {/* === Section 1: Resume Upload === */}
-      <div
-        id="resume"
-        style={{
-          background: 'white',
-          borderRadius: '16px',
-          border: '1px solid #e7e5e4',
-          padding: '28px',
-          marginBottom: '20px',
-          boxShadow: '0 1px 4px rgba(28,25,23,0.05)',
-        }}
-      >
-        <div style={{ marginBottom: '20px' }}>
-          <h2 style={{ fontSize: '17px', fontWeight: 700, color: '#1c1917', margin: '0 0 4px' }}>
-            📄 Resume Upload &amp; Shred
-          </h2>
-          <p style={{ fontSize: '14px', color: '#78716c', margin: 0 }}>
-            Upload your master resume and let AI decompose it into multiple atomic vault entities — each separately searchable and embeddable.
+    <div className="min-h-screen bg-gradient-to-br from-stone-50 to-amber-50">
+      <div className="max-w-5xl mx-auto px-4 py-8 md:py-12">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-8"
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-amber-600 mb-3">
+            Ingest Engine
           </p>
-        </div>
+          <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-stone-800 to-amber-800 bg-clip-text text-transparent mb-3">
+            Add to Your Vault
+          </h1>
+          <p className="text-gray-600 max-w-2xl mx-auto">
+            Transform your professional journey into a searchable knowledge base.
+            Upload entire resumes or add individual projects with AI-powered structuring.
+          </p>
+        </motion.div>
 
-        <form action={shredAction} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#44403c' }}>
-              Resume file (.pdf, .txt, .md)
-              <input
-                name="resumeFile"
-                type="file"
-                required
-                accept=".pdf,.txt,.md,.markdown"
-                style={inputStyle}
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#44403c' }}>
-              Max entities to extract
-              <input
-                name="maxEntities"
-                type="number"
-                min={1}
-                max={30}
-                defaultValue={12}
-                style={inputStyle}
-              />
-            </label>
-          </div>
-
-          <div>
+        {/* Tab Navigation */}
+        <div className="flex gap-2 mb-6 border-b border-stone-200">
+          {[
+            { id: 'resume', label: '📄 Resume Upload', icon: '📄' },
+            { id: 'project', label: '✏️ Single Project', icon: '✏️' },
+          ].map(tab => (
             <button
-              style={{ ...btnStyle, opacity: isShredPending ? 0.6 : 1, cursor: isShredPending ? 'not-allowed' : 'pointer' }}
-              disabled={isShredPending}
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-6 py-3 font-medium transition-all relative ${
+                activeTab === tab.id
+                  ? 'text-amber-700'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
             >
-              {isShredPending ? 'Processing…' : 'Upload and shred resume'}
+              {tab.label}
+              {activeTab === tab.id && (
+                <motion.div
+                  layoutId="activeTab"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-600"
+                />
+              )}
             </button>
-          </div>
-        </form>
-
-        {isShredPending && (
-          <div
-            style={{
-              marginTop: '16px',
-              padding: '14px 16px',
-              background: '#fffbeb',
-              border: '1px solid #fde68a',
-              borderRadius: '12px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#92400e', marginBottom: '8px' }}>
-              <span>{shredPhaseLabel}</span>
-              <span>{Math.round(shredProgress)}%</span>
-            </div>
-            <div style={{ height: '6px', borderRadius: '999px', background: '#fde68a', overflow: 'hidden' }}>
-              <div
-                style={{
-                  height: '100%',
-                  borderRadius: '999px',
-                  background: '#f59e0b',
-                  width: `${Math.max(2, Math.round(shredProgress))}%`,
-                  transition: 'width 0.3s ease',
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        <ResultPanel state={shredState} title="Entities extracted and saved" />
-      </div>
-
-      {/* === Section 2: Add Project === */}
-      <div
-        id="project"
-        style={{
-          background: 'white',
-          borderRadius: '16px',
-          border: '1px solid #e7e5e4',
-          padding: '28px',
-          boxShadow: '0 1px 4px rgba(28,25,23,0.05)',
-        }}
-      >
-        <div style={{ marginBottom: '20px' }}>
-          <h2 style={{ fontSize: '17px', fontWeight: 700, color: '#1c1917', margin: '0 0 4px' }}>
-            ✏️ Add Single Project
-          </h2>
-          <p style={{ fontSize: '14px', color: '#78716c', margin: 0 }}>
-            Paste raw project notes — AI will clean, structure, and embed them into your vault automatically.
-          </p>
+          ))}
         </div>
 
-        <form action={addAction} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#44403c' }}>
-            Raw project text
-            <textarea
-              name="rawInput"
-              required
-              rows={7}
-              placeholder="Built a football scouting app with Next.js and MongoDB that reduced scout reporting time by 40%..."
-              style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#44403c' }}>
-            Optional tags (comma separated)
-            <input
-              name="tags"
-              placeholder="next.js, mongodb, analytics"
-              style={inputStyle}
-            />
-          </label>
-          <div>
-            <button style={btnStyle}>
-              Ingest project
-            </button>
-          </div>
-        </form>
+        {/* Resume Upload Section */}
+        <AnimatePresence mode="wait">
+          {activeTab === 'resume' && (
+            <motion.div
+              key="resume"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="bg-white rounded-2xl shadow-xl border border-stone-200 overflow-hidden"
+            >
+              <div className="p-6 md:p-8">
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold text-stone-800 mb-2">
+                    📄 Resume Upload &amp; Shred
+                  </h2>
+                  <p className="text-gray-600">
+                    Upload your master resume and let AI decompose it into multiple atomic vault entities — 
+                    each separately searchable and embeddable.
+                  </p>
+                </div>
 
-        <ResultPanel state={addState} title="Project saved to vault" />
+                <form action={shredAction} className="space-y-5">
+                  <div className="grid md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-sm font-semibold text-stone-700 mb-2">
+                        Resume file
+                      </label>
+                      <input
+                        name="resumeFile"
+                        type="file"
+                        required
+                        accept=".pdf,.txt,.md,.markdown"
+                        className="w-full px-4 py-2 border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-stone-700 mb-2">
+                        Max entities to extract
+                      </label>
+                      <input
+                        name="maxEntities"
+                        type="number"
+                        min={1}
+                        max={30}
+                        defaultValue={12}
+                        className="w-full px-4 py-2 border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isShredPending}
+                    className="w-full md:w-auto px-8 py-3 bg-gradient-to-r from-amber-600 to-amber-700 text-white font-semibold rounded-xl hover:from-amber-700 hover:to-amber-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+                  >
+                    {isShredPending ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Processing...
+                      </span>
+                    ) : (
+                      'Upload and shred resume'
+                    )}
+                  </button>
+                </form>
+
+                {isShredPending && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-5 p-4 bg-amber-50 rounded-xl border border-amber-200"
+                  >
+                    <div className="flex justify-between text-sm font-semibold text-amber-800 mb-2">
+                      <span>{shredPhaseLabel}</span>
+                      <span>{Math.round(shredProgress)}%</span>
+                    </div>
+                    <div className="h-2 bg-amber-200 rounded-full overflow-hidden">
+                      <motion.div
+                        className="h-full bg-gradient-to-r from-amber-500 to-amber-600"
+                        initial={{ width: '0%' }}
+                        animate={{ width: `${Math.max(2, Math.round(shredProgress))}%` }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+
+                <ResultPanel state={shredState} title="Entities extracted and saved" />
+              </div>
+            </motion.div>
+          )}
+
+          {/* Add Project Section */}
+          {activeTab === 'project' && (
+            <motion.div
+              key="project"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="bg-white rounded-2xl shadow-xl border border-stone-200 overflow-hidden"
+            >
+              <div className="p-6 md:p-8">
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold text-stone-800 mb-2">
+                    ✏️ Add Single Project
+                  </h2>
+                  <p className="text-gray-600">
+                    Paste raw project notes — AI will clean, structure, and embed them into your vault automatically.
+                  </p>
+                </div>
+
+                <form action={addAction} className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-semibold text-stone-700 mb-2">
+                      Raw project text
+                    </label>
+                    <textarea
+                      name="rawInput"
+                      required
+                      rows={6}
+                      placeholder="Built a football scouting app with Next.js and MongoDB that reduced scout reporting time by 40%..."
+                      className="w-full px-4 py-3 border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-y font-mono text-sm"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-semibold text-stone-700 mb-2">
+                      Optional tags (comma separated)
+                    </label>
+                    <input
+                      name="tags"
+                      placeholder="next.js, mongodb, analytics, sports-tech"
+                      className="w-full px-4 py-2 border border-stone-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isAddPending}
+                    className="w-full md:w-auto px-8 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl hover:from-emerald-700 hover:to-teal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+                  >
+                    {isAddPending ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Processing...
+                      </span>
+                    ) : (
+                      'Ingest project into vault'
+                    )}
+                  </button>
+                </form>
+
+                <ResultPanel state={addState} title="Project saved to vault" />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Features Footer */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="mt-8 text-center text-sm text-gray-500"
+        >
+          <div className="flex justify-center gap-6 flex-wrap">
+            <span className="flex items-center gap-1">🔒 End-to-end encrypted</span>
+            <span className="flex items-center gap-1">🤖 AI-powered extraction</span>
+            <span className="flex items-center gap-1">⚡ Real-time processing</span>
+          </div>
+        </motion.div>
       </div>
+
+      <style jsx>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #d1d5db;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #9ca3af;
+        }
+      `}</style>
     </div>
   );
 }

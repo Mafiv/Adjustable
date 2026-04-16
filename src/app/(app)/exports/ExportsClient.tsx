@@ -86,8 +86,8 @@ export default function ExportsClient({
   const analyticsData = analyticsState.status === 'success' ? (analyticsState.data as AnalyticsData) : null;
 
   return (
-    <div style={{ padding: '36px 40px', maxWidth: '960px' }}>
-      <div style={{ marginBottom: '28px' }}>
+    <div className="exports-page" style={{ padding: '24px 32px', maxWidth: '1120px' }}>
+      <div style={{ marginBottom: '24px' }}>
         <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.35em', color: '#a8a29e', margin: '0 0 6px' }}>Exports</p>
         <h1 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.03em', color: '#1c1917', margin: 0 }}>
           Portfolio Generations
@@ -97,9 +97,9 @@ export default function ExportsClient({
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px', alignItems: 'flex-start' }}>
+      <div className="exports-layout" style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px', alignItems: 'flex-start' }}>
         {/* Left: generations list */}
-        <div>
+        <div className="exports-list-column">
           {generations.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', background: 'white', borderRadius: '16px', border: '1px dashed #d6d3d1' }}>
               <div style={{ fontSize: '40px', marginBottom: '12px' }}>📋</div>
@@ -110,19 +110,20 @@ export default function ExportsClient({
               </a>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
               {generations.map((gen) => (
                 <div
                   key={gen.id}
                   onClick={() => setActiveId(gen.id)}
                   style={{
-                    padding: '16px 18px',
+                    padding: '16px 20px',
                     background: 'white',
                     borderRadius: '14px',
                     border: `2px solid ${activeId === gen.id ? '#b87a38' : '#e7e5e4'}`,
                     cursor: 'pointer',
                     transition: 'border-color 0.15s, box-shadow 0.15s',
                     boxShadow: activeId === gen.id ? '0 0 0 3px rgba(184,122,56,0.12)' : '0 1px 4px rgba(28,25,23,0.04)',
+                    marginBottom: '10px',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
@@ -171,7 +172,7 @@ export default function ExportsClient({
         </div>
 
         {/* Right: actions sidebar */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div className="exports-actions-column" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {/* PDF Export */}
           <div style={{ background: 'white', borderRadius: '14px', border: '1px solid #e7e5e4', padding: '20px', boxShadow: '0 1px 4px rgba(28,25,23,0.05)' }}>
             <h2 style={{ fontSize: '14px', fontWeight: 700, color: '#1c1917', margin: '0 0 12px' }}>📥 Export PDF</h2>
@@ -247,7 +248,7 @@ export default function ExportsClient({
             </form>
             {analyticsData && (
               <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                <div className="exports-analytics-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                   {[
                     ['Generations', analyticsData.generationCount],
                     ['Views', analyticsData.events?.view],

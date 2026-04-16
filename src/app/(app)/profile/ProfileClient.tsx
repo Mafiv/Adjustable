@@ -36,8 +36,8 @@ export default function ProfileClient({
   const removeEdu = (idx: number) => setEdu(edu.filter((_, i) => i !== idx));
 
   return (
-    <div style={{ padding: '36px 40px', maxWidth: '700px' }}>
-      <div style={{ marginBottom: '28px' }}>
+    <div style={{ padding: '24px 32px', maxWidth: '700px' }}>
+      <div style={{ marginBottom: '24px' }}>
         <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.35em', color: '#a8a29e', margin: '0 0 6px' }}>Settings</p>
         <h1 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.03em', color: '#1c1917', margin: 0 }}>Your Profile</h1>
         <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#78716c', lineHeight: 1.5 }}>
@@ -45,7 +45,7 @@ export default function ProfileClient({
         </p>
       </div>
 
-      <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #e7e5e4', padding: '28px', boxShadow: '0 1px 4px rgba(28,25,23,0.05)' }}>
+      <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #e7e5e4', padding: '24px', boxShadow: '0 1px 4px rgba(28,25,23,0.05)' }}>
         <form action={formAction} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
             <label style={field}>Full Name <input name="name" defaultValue={initial.name} placeholder="Jane Doe" style={input} maxLength={120} /></label>

@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
 import { authClient } from '@/lib/auth-client';
+import { useSidebar, useTheme } from './AppShell';
 
 const NAV_ITEMS = [
   {
-    href: '/',
+    href: '/dashboard',
     label: 'Dashboard',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -73,142 +75,163 @@ const NAV_ITEMS = [
   },
 ];
 
+/* Chevron icons for the toggle */
+function ChevronLeft() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+function ChevronRight() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2" />
+      <path d="M12 20v2" />
+      <path d="m4.93 4.93 1.41 1.41" />
+      <path d="m17.66 17.66 1.41 1.41" />
+      <path d="M2 12h2" />
+      <path d="M20 12h2" />
+      <path d="m6.34 17.66-1.41 1.41" />
+      <path d="m19.07 4.93-1.41 1.41" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z" />
+    </svg>
+  );
+}
+
 export default function AppNav() {
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const { collapsed, toggle } = useSidebar();
+  const { theme, toggleTheme } = useTheme();
+
+  const closeMobile = () => setMobileOpen(false);
 
   return (
-    <aside
-      style={{
-        width: '220px',
-        minHeight: '100vh',
-        background: 'white',
-        borderRight: '1px solid #e7e5e4',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '0',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        bottom: 0,
-        zIndex: 40,
-      }}
-    >
-      {/* Logo */}
-      <div
-        style={{
-          padding: '24px 20px 20px',
-          borderBottom: '1px solid #e7e5e4',
-        }}
-      >
-        <span
-          style={{
-            fontSize: '10px',
-            textTransform: 'uppercase',
-            letterSpacing: '0.3em',
-            color: '#a8a29e',
-            display: 'block',
-            marginBottom: '4px',
-          }}
-        >
-          Adjustable
-        </span>
-        <span
-          style={{
-            fontSize: '15px',
-            fontWeight: 700,
-            color: '#1c1917',
-            letterSpacing: '-0.02em',
-          }}
-        >
-          Portfolio Vault
-        </span>
-      </div>
-
-      {/* Nav links */}
-      <nav style={{ flex: 1, padding: '12px 10px' }}>
-        {NAV_ITEMS.map((item) => {
-          const isActive =
-            item.href === '/'
-              ? pathname === '/'
-              : pathname.startsWith(item.href);
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '9px 12px',
-                borderRadius: '10px',
-                marginBottom: '2px',
-                fontSize: '14px',
-                fontWeight: isActive ? 600 : 400,
-                color: isActive ? '#1c1917' : '#78716c',
-                background: isActive ? '#f2ebe0' : 'transparent',
-                textDecoration: 'none',
-                transition: 'background 0.15s, color 0.15s',
-              }}
-              onMouseEnter={(e) => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLElement).style.background = '#faf6f0';
-                  (e.currentTarget as HTMLElement).style.color = '#1c1917';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLElement).style.background = 'transparent';
-                  (e.currentTarget as HTMLElement).style.color = '#78716c';
-                }
-              }}
-            >
-              <span style={{ color: isActive ? '#b87a38' : 'currentColor', flexShrink: 0 }}>
-                {item.icon}
-              </span>
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Sign out */}
-      <div style={{ padding: '12px 10px', borderTop: '1px solid #e7e5e4' }}>
+    <>
+      {/* Mobile top bar */}
+      <header className="app-mobile-topbar">
         <button
           type="button"
-          onClick={() => void authClient.signOut()}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            width: '100%',
-            padding: '9px 12px',
-            borderRadius: '10px',
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            fontSize: '14px',
-            color: '#78716c',
-            textAlign: 'left',
-            transition: 'background 0.15s, color 0.15s',
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = '#fef2f2';
-            (e.currentTarget as HTMLElement).style.color = '#b91c1c';
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = 'transparent';
-            (e.currentTarget as HTMLElement).style.color = '#78716c';
-          }}
+          className="app-mobile-trigger"
+          onClick={() => setMobileOpen((v) => !v)}
+          aria-label="Toggle navigation"
+          aria-expanded={mobileOpen}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" x2="9" y1="12" y2="12" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
-          Sign out
         </button>
-      </div>
-    </aside>
+        <div className="app-mobile-brand">Adjustable</div>
+      </header>
+
+      {/* Mobile backdrop */}
+      <div
+        className={`app-sidebar-backdrop ${mobileOpen ? 'open' : ''}`}
+        onClick={closeMobile}
+        aria-hidden="true"
+      />
+
+      {/* Sidebar */}
+      <aside className={`app-sidebar ${mobileOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
+
+        {/* Collapsed Logo */}
+        {collapsed && (
+          <div className="app-sidebar-logo-wrap">
+            <div className="app-sidebar-logo-mark">
+              A
+            </div>
+          </div>
+        )}
+
+        {/* Header — hidden when collapsed */}
+        <div className="app-sidebar-header">
+          <p className="app-sidebar-eyebrow">Workspace</p>
+          <h2 className="app-sidebar-title">Adjustable</h2>
+          <p className="app-sidebar-subtitle">Portfolio Vault</p>
+        </div>
+
+        {/* Nav links */}
+        <nav className="app-sidebar-nav" aria-label="Main navigation">
+          {!collapsed && (
+            <p className="app-sidebar-section-label">Build</p>
+          )}
+          {NAV_ITEMS.map((item) => {
+            const isActive =
+              item.href === '/dashboard'
+                ? pathname === '/dashboard'
+                : pathname.startsWith(item.href);
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`app-sidebar-link ${isActive ? 'active' : ''}`}
+                onClick={closeMobile}
+                title={collapsed ? item.label : undefined}
+              >
+                <span className="app-sidebar-link-icon">{item.icon}</span>
+                <span className="app-sidebar-link-label">{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Footer */}
+        <div className="app-sidebar-footer">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="app-sidebar-action"
+            title={collapsed ? 'Toggle theme' : undefined}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+            <span className="app-sidebar-link-label">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void authClient.signOut()}
+            className="app-sidebar-signout"
+            title={collapsed ? 'Sign out' : undefined}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" x2="9" y1="12" y2="12" />
+            </svg>
+            <span className="app-sidebar-link-label">Sign out</span>
+          </button>
+        </div>
+
+        {/* Desktop collapse toggle — pinned to the right edge of the sidebar */}
+        <button
+          type="button"
+          className="app-sidebar-collapse-btn"
+          onClick={toggle}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight /> : <ChevronLeft />}
+        </button>
+      </aside>
+    </>
   );
 }
