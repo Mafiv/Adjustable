@@ -19,10 +19,10 @@ type VaultProject = {
 };
 
 export function ImpactBadge({ score }: { score: number }) {
-  const color =
-    score >= 8 ? '#15803d' : score >= 6 ? '#b45309' : '#6b7280';
-  const bg =
-    score >= 8 ? '#dcfce7' : score >= 6 ? '#fef3c7' : '#f3f4f6';
+  // Use semantic variables for the impact badge
+  const color = score >= 8 ? 'var(--success-text)' : score >= 6 ? 'var(--brand-600)' : 'var(--text-muted)';
+  const bg = score >= 8 ? 'var(--success-bg)' : score >= 6 ? 'var(--chip-bg)' : 'var(--summary-bg)';
+  const border = score >= 8 ? 'var(--success-border)' : score >= 6 ? 'var(--chip-border)' : 'var(--summary-border)';
 
   return (
     <span
@@ -36,6 +36,7 @@ export function ImpactBadge({ score }: { score: number }) {
         fontWeight: 700,
         background: bg,
         color,
+        border: `1px solid ${border}`,
         flexShrink: 0,
       }}
     >
@@ -60,26 +61,17 @@ export function ProjectCard({
   return (
     <div
       style={{
-        background: 'white',
+        background: 'var(--card-bg)',
         borderRadius: '14px',
-        border: '1px solid #e7e5e4',
+        border: '1px solid var(--card-border)',
         padding: '18px',
         display: 'flex',
         flexDirection: 'column',
         gap: '10px',
-        boxShadow: '0 1px 4px rgba(28,25,23,0.04)',
+        boxShadow: 'var(--card-shadow)',
         transition: 'box-shadow 0.15s, border-color 0.15s',
       }}
-      onMouseEnter={(e) => {
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = '0 4px 16px rgba(28,25,23,0.09)';
-        el.style.borderColor = '#d6d3d1';
-      }}
-      onMouseLeave={(e) => {
-        const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = '0 1px 4px rgba(28,25,23,0.04)';
-        el.style.borderColor = '#e7e5e4';
-      }}
+      className="vault-project-card"
     >
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
@@ -87,7 +79,7 @@ export function ProjectCard({
           style={{
             fontSize: '14px',
             fontWeight: 700,
-            color: '#1c1917',
+            color: 'var(--text-strong)',
             margin: 0,
             lineHeight: 1.3,
             flex: 1,
@@ -103,9 +95,9 @@ export function ProjectCard({
               onClick={() => onEdit(project)}
               disabled={editing}
               style={{
-                border: '1px solid #cbd5e1',
-                background: editing ? '#e2e8f0' : '#f8fafc',
-                color: '#334155',
+                border: '1px solid var(--input-border)',
+                background: editing ? 'var(--summary-bg)' : 'var(--input-bg)',
+                color: 'var(--text-primary)',
                 borderRadius: '999px',
                 fontSize: '11px',
                 padding: '3px 9px',
@@ -122,9 +114,9 @@ export function ProjectCard({
               onClick={() => onDelete(project)}
               disabled={deleting}
               style={{
-                border: '1px solid #fecaca',
-                background: deleting ? '#fee2e2' : '#fff1f2',
-                color: '#b91c1c',
+                border: '1px solid var(--danger-border)',
+                background: deleting ? 'var(--danger-bg)' : 'var(--card-bg)',
+                color: 'var(--danger-text)',
                 borderRadius: '999px',
                 fontSize: '11px',
                 padding: '3px 9px',
@@ -142,7 +134,7 @@ export function ProjectCard({
       <p
         style={{
           fontSize: '13px',
-          color: '#78716c',
+          color: 'var(--text-muted)',
           margin: 0,
           lineHeight: 1.5,
           display: '-webkit-box',
@@ -165,8 +157,9 @@ export function ProjectCard({
                 fontSize: '11px',
                 padding: '2px 8px',
                 borderRadius: '20px',
-                background: '#f2ebe0',
-                color: '#7a4f1e',
+                background: 'var(--chip-bg)',
+                color: 'var(--chip-text)',
+                border: '1px solid var(--chip-border)',
                 fontWeight: 500,
               }}
             >
@@ -174,7 +167,7 @@ export function ProjectCard({
             </span>
           ))}
           {project.techStack.length > 5 && (
-            <span style={{ fontSize: '11px', color: '#a8a29e', padding: '2px 4px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-subtle)', padding: '2px 4px' }}>
               +{project.techStack.length - 5}
             </span>
           )}
@@ -191,9 +184,9 @@ export function ProjectCard({
                 fontSize: '11px',
                 padding: '2px 8px',
                 borderRadius: '20px',
-                background: '#f5f5f4',
-                color: '#78716c',
-                border: '1px solid #e7e5e4',
+                background: 'var(--summary-bg)',
+                color: 'var(--text-muted)',
+                border: '1px solid var(--card-border)',
               }}
             >
               #{t}
@@ -203,7 +196,7 @@ export function ProjectCard({
       )}
 
       {/* Footer */}
-      <p style={{ fontSize: '11px', color: '#a8a29e', margin: 0, marginTop: 'auto' }}>
+      <p style={{ fontSize: '11px', color: 'var(--text-subtle)', margin: 0, marginTop: 'auto' }}>
         {project.createdAt
           ? new Date(project.createdAt).toLocaleDateString('en-US', {
               month: 'short',
@@ -380,18 +373,18 @@ export function VaultInlineManager({
     <div style={{ display: 'grid', gap: '20px' }}>
       <div
         style={{
-          background: 'white',
+          background: 'var(--card-bg)',
           borderRadius: '16px',
-          border: '1px solid #e7e5e4',
+          border: '1px solid var(--card-border)',
           padding: '18px',
-          boxShadow: '0 1px 4px rgba(28,25,23,0.04)',
+          boxShadow: 'var(--card-shadow)',
         }}
       >
         <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
-          <h2 style={{ margin: 0, fontSize: '16px', color: '#1c1917' }}>Quick Add</h2>
-          <span style={{ fontSize: '12px', color: '#78716c' }}>{counterLabel}</span>
+          <h2 style={{ margin: 0, fontSize: '16px', color: 'var(--text-strong)' }}>Quick Add</h2>
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{counterLabel}</span>
         </div>
-        <p style={{ margin: '0 0 10px', fontSize: '13px', color: '#78716c' }}>
+        <p style={{ margin: '0 0 10px', fontSize: '13px', color: 'var(--text-muted)' }}>
           Paste a project paragraph, bullet list, or role summary. It will be parsed and added directly to the vault.
         </p>
         <textarea
@@ -401,13 +394,15 @@ export function VaultInlineManager({
           rows={4}
           style={{
             width: '100%',
-            border: '1px solid #d6d3d1',
+            border: '1px solid var(--input-border)',
             borderRadius: '10px',
             padding: '10px 12px',
             fontSize: '13px',
             lineHeight: 1.5,
             resize: 'vertical',
             marginBottom: '12px',
+            background: 'var(--input-bg)',
+            color: 'var(--input-text)',
           }}
         />
         <button
@@ -418,8 +413,8 @@ export function VaultInlineManager({
             border: 'none',
             borderRadius: '999px',
             padding: '9px 16px',
-            background: isSaving ? '#57534e' : '#1c1917',
-            color: 'white',
+            background: isSaving ? 'var(--text-muted)' : 'var(--action-btn-bg)',
+            color: 'var(--action-btn-text)',
             fontSize: '13px',
             fontWeight: 600,
             cursor: isSaving ? 'not-allowed' : 'pointer',
@@ -432,7 +427,7 @@ export function VaultInlineManager({
             style={{
               margin: '10px 0 0',
               fontSize: '12px',
-              color: error ? '#b91c1c' : '#047857',
+              color: error ? 'var(--danger-text)' : 'var(--success-text)',
             }}
           >
             {error ?? message}
@@ -476,18 +471,18 @@ export function VaultInlineManager({
             style={{
               width: '100%',
               maxWidth: '460px',
-              background: 'white',
+              background: 'var(--card-bg)',
               borderRadius: '14px',
-              border: '1px solid #e7e5e4',
-              boxShadow: '0 18px 40px rgba(28,25,23,0.2)',
+              border: '1px solid var(--card-border)',
+              boxShadow: '0 18px 40px rgba(0,0,0,0.25)',
               padding: '18px',
               display: 'grid',
               gap: '12px',
             }}
           >
-            <h3 style={{ margin: 0, fontSize: '18px', color: '#1c1917' }}>Delete project?</h3>
-            <p style={{ margin: 0, fontSize: '14px', color: '#57534e', lineHeight: 1.5 }}>
-              This will permanently remove "{confirmDeleteProject.title}" from your vault.
+            <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--text-strong)' }}>Delete project?</h3>
+            <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-muted)' }}>
+              This will permanently remove &quot;{confirmDeleteProject.title}&quot; from your vault.
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button
@@ -495,9 +490,9 @@ export function VaultInlineManager({
                 onClick={() => setConfirmDeleteProject(null)}
                 disabled={isDeleting}
                 style={{
-                  border: '1px solid #d6d3d1',
-                  background: 'white',
-                  color: '#44403c',
+                  border: '1px solid var(--input-border)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text-primary)',
                   borderRadius: '999px',
                   fontSize: '13px',
                   fontWeight: 600,
@@ -513,7 +508,7 @@ export function VaultInlineManager({
                 disabled={isDeleting}
                 style={{
                   border: 'none',
-                  background: isDeleting ? '#ef4444' : '#dc2626',
+                  background: 'var(--danger-text)',
                   color: 'white',
                   borderRadius: '999px',
                   fontSize: '13px',
@@ -546,16 +541,16 @@ export function VaultInlineManager({
             style={{
               width: '100%',
               maxWidth: '720px',
-              background: 'white',
+              background: 'var(--card-bg)',
               borderRadius: '14px',
-              border: '1px solid #e7e5e4',
-              boxShadow: '0 18px 40px rgba(28,25,23,0.2)',
+              border: '1px solid var(--card-border)',
+              boxShadow: '0 18px 40px rgba(0,0,0,0.25)',
               padding: '18px',
               display: 'grid',
               gap: '10px',
             }}
           >
-            <h3 style={{ margin: 0, fontSize: '18px', color: '#1c1917' }}>Edit project</h3>
+            <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--text-strong)' }}>Edit project</h3>
 
             <input
               value={editTitle}
@@ -563,10 +558,12 @@ export function VaultInlineManager({
               placeholder="Project title"
               style={{
                 width: '100%',
-                border: '1px solid #d6d3d1',
+                border: '1px solid var(--input-border)',
                 borderRadius: '10px',
                 padding: '10px 12px',
                 fontSize: '13px',
+                background: 'var(--input-bg)',
+                color: 'var(--input-text)',
               }}
             />
             <textarea
@@ -576,12 +573,14 @@ export function VaultInlineManager({
               placeholder="Project description"
               style={{
                 width: '100%',
-                border: '1px solid #d6d3d1',
+                border: '1px solid var(--input-border)',
                 borderRadius: '10px',
                 padding: '10px 12px',
                 fontSize: '13px',
                 lineHeight: 1.5,
                 resize: 'vertical',
+                background: 'var(--input-bg)',
+                color: 'var(--input-text)',
               }}
             />
             <div
@@ -597,10 +596,12 @@ export function VaultInlineManager({
                 placeholder="Tech stack (comma-separated)"
                 style={{
                   width: '100%',
-                  border: '1px solid #d6d3d1',
+                  border: '1px solid var(--input-border)',
                   borderRadius: '10px',
                   padding: '10px 12px',
                   fontSize: '13px',
+                  background: 'var(--input-bg)',
+                  color: 'var(--input-text)',
                 }}
               />
               <input
@@ -609,15 +610,17 @@ export function VaultInlineManager({
                 placeholder="Tags (comma-separated)"
                 style={{
                   width: '100%',
-                  border: '1px solid #d6d3d1',
+                  border: '1px solid var(--input-border)',
                   borderRadius: '10px',
                   padding: '10px 12px',
                   fontSize: '13px',
+                  background: 'var(--input-bg)',
+                  color: 'var(--input-text)',
                 }}
               />
             </div>
 
-            <label style={{ display: 'grid', gap: '6px', fontSize: '12px', color: '#57534e' }}>
+            <label style={{ display: 'grid', gap: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
               Impact score: {editImpactScore}
               <input
                 type="range"
@@ -635,9 +638,9 @@ export function VaultInlineManager({
                 onClick={() => setEditingProject(null)}
                 disabled={isEditing}
                 style={{
-                  border: '1px solid #d6d3d1',
-                  background: 'white',
-                  color: '#44403c',
+                  border: '1px solid var(--input-border)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text-primary)',
                   borderRadius: '999px',
                   fontSize: '13px',
                   fontWeight: 600,
@@ -653,8 +656,8 @@ export function VaultInlineManager({
                 disabled={isEditing}
                 style={{
                   border: 'none',
-                  background: isEditing ? '#57534e' : '#1c1917',
-                  color: 'white',
+                  background: isEditing ? 'var(--text-muted)' : 'var(--action-btn-bg)',
+                  color: 'var(--action-btn-text)',
                   borderRadius: '999px',
                   fontSize: '13px',
                   fontWeight: 600,

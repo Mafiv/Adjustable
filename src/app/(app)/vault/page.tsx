@@ -32,30 +32,23 @@ export default async function VaultPage({
       {/* Header */}
       <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
         <div>
-          <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.35em', color: '#a8a29e', margin: '0 0 6px' }}>
+          <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.35em', color: 'var(--text-subtle)', margin: '0 0 6px' }}>
             Vault
           </p>
-          <h1 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.03em', color: '#1c1917', margin: 0 }}>
+          <h1 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--text-strong)', margin: 0 }}>
             Stored Experiences
           </h1>
-          <p style={{ margin: '6px 0 0', fontSize: '14px', color: '#78716c' }}>
+          <p style={{ margin: '6px 0 0', fontSize: '14px', color: 'var(--text-muted)' }}>
             {total} {total === 1 ? 'item' : 'items'} in your vault
           </p>
         </div>
         <a
           href="/ingest"
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '9px 18px',
-            background: '#1c1917',
-            color: 'white',
-            borderRadius: '999px',
-            fontSize: '13px',
-            fontWeight: 600,
-            textDecoration: 'none',
-            flexShrink: 0,
+            display: 'inline-flex', alignItems: 'center', gap: '6px',
+            padding: '9px 18px', background: 'var(--action-btn-bg)',
+            color: 'var(--action-btn-text)', borderRadius: '999px',
+            fontSize: '13px', fontWeight: 600, textDecoration: 'none', flexShrink: 0,
           }}
         >
           Resume Ingest
@@ -64,51 +57,34 @@ export default async function VaultPage({
 
       {/* Error */}
       {error && (
-        <div
-          style={{
-            padding: '16px 20px',
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: '12px',
-            color: '#b91c1c',
-            fontSize: '14px',
-            marginBottom: '24px',
-          }}
-        >
+        <div style={{
+          padding: '16px 20px', background: 'var(--danger-bg)',
+          border: '1px solid var(--danger-border)', borderRadius: '12px',
+          color: 'var(--danger-text)', fontSize: '14px', marginBottom: '24px',
+        }}>
           {error}
         </div>
       )}
 
       {/* Empty state */}
       {!error && projects.length === 0 && (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '56px 20px',
-            background: 'white',
-            borderRadius: '16px',
-            border: '1px dashed #d6d3d1',
-            marginBottom: '24px',
-          }}
-        >
+        <div style={{
+          textAlign: 'center', padding: '56px 20px', background: 'var(--card-bg)',
+          borderRadius: '16px', border: '1px dashed var(--card-border)', marginBottom: '24px',
+        }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>🗄️</div>
-          <p style={{ fontSize: '18px', fontWeight: 600, color: '#1c1917', margin: '0 0 8px' }}>
+          <p style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 8px' }}>
             No vault items yet
           </p>
-          <p style={{ fontSize: '14px', color: '#78716c', margin: '0 0 24px' }}>
+          <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 24px' }}>
             Upload your resume or use quick add below to fill your vault.
           </p>
           <a
             href="/ingest"
             style={{
-              display: 'inline-block',
-              padding: '10px 22px',
-              background: '#1c1917',
-              color: 'white',
-              borderRadius: '999px',
-              fontSize: '14px',
-              fontWeight: 600,
-              textDecoration: 'none',
+              display: 'inline-block', padding: '10px 22px',
+              background: 'var(--action-btn-bg)', color: 'var(--action-btn-text)',
+              borderRadius: '999px', fontSize: '14px', fontWeight: 600, textDecoration: 'none',
             }}
           >
             Ingest content →
@@ -130,34 +106,24 @@ export default async function VaultPage({
                 <a
                   href={`/vault?page=${page - 1}`}
                   style={{
-                    padding: '7px 16px',
-                    borderRadius: '999px',
-                    border: '1px solid #e7e5e4',
-                    background: 'white',
-                    fontSize: '13px',
-                    color: '#44403c',
-                    textDecoration: 'none',
-                    fontWeight: 500,
+                    padding: '7px 16px', borderRadius: '999px',
+                    border: '1px solid var(--card-border)', background: 'var(--card-bg)',
+                    fontSize: '13px', color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500,
                   }}
                 >
                   ← Prev
                 </a>
               )}
-              <span style={{ fontSize: '13px', color: '#78716c' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                 Page {page} of {pages}
               </span>
               {page < pages && (
                 <a
                   href={`/vault?page=${page + 1}`}
                   style={{
-                    padding: '7px 16px',
-                    borderRadius: '999px',
-                    border: '1px solid #e7e5e4',
-                    background: 'white',
-                    fontSize: '13px',
-                    color: '#44403c',
-                    textDecoration: 'none',
-                    fontWeight: 500,
+                    padding: '7px 16px', borderRadius: '999px',
+                    border: '1px solid var(--card-border)', background: 'var(--card-bg)',
+                    fontSize: '13px', color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 500,
                   }}
                 >
                   Next →

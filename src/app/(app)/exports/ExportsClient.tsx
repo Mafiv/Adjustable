@@ -38,11 +38,11 @@ function downloadBase64Pdf(fileName: string, base64: string) {
 
 const inputStyle: React.CSSProperties = {
   borderRadius: '10px',
-  border: '1px solid #d6d3d1',
-  background: 'white',
+  border: '1px solid var(--input-border)',
+  background: 'var(--input-bg)',
   padding: '9px 14px',
   fontSize: '14px',
-  color: '#1c1917',
+  color: 'var(--input-text)',
   outline: 'none',
 };
 
@@ -88,11 +88,11 @@ export default function ExportsClient({
   return (
     <div className="exports-page" style={{ padding: '24px 32px', maxWidth: '1120px' }}>
       <div style={{ marginBottom: '24px' }}>
-        <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.35em', color: '#a8a29e', margin: '0 0 6px' }}>Exports</p>
-        <h1 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.03em', color: '#1c1917', margin: 0 }}>
+        <p style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.35em', color: 'var(--text-subtle)', margin: '0 0 6px' }}>Exports</p>
+        <h1 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--text-strong)', margin: 0 }}>
           Portfolio Generations
         </h1>
-        <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#78716c' }}>
+        <p style={{ margin: '8px 0 0', fontSize: '14px', color: 'var(--text-muted)' }}>
           {total} {total === 1 ? 'generation' : 'generations'} saved — export to PDF, record feedback, or review analytics.
         </p>
       </div>
@@ -101,11 +101,11 @@ export default function ExportsClient({
         {/* Left: generations list */}
         <div className="exports-list-column">
           {generations.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', background: 'white', borderRadius: '16px', border: '1px dashed #d6d3d1' }}>
+            <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--card-bg)', borderRadius: '16px', border: '1px dashed var(--card-border)' }}>
               <div style={{ fontSize: '40px', marginBottom: '12px' }}>📋</div>
-              <p style={{ fontSize: '16px', fontWeight: 600, color: '#1c1917', margin: '0 0 6px' }}>No generations yet</p>
-              <p style={{ fontSize: '14px', color: '#78716c', margin: '0 0 20px' }}>Generate your first portfolio from the Generate page.</p>
-              <a href="/generate" style={{ display: 'inline-block', padding: '10px 20px', background: '#1c1917', color: 'white', borderRadius: '999px', fontSize: '14px', fontWeight: 600, textDecoration: 'none' }}>
+              <p style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-strong)', margin: '0 0 6px' }}>No generations yet</p>
+              <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: '0 0 20px' }}>Generate your first portfolio from the Generate page.</p>
+              <a href="/generate" style={{ display: 'inline-block', padding: '10px 20px', background: 'var(--action-btn-bg)', color: 'var(--action-btn-text)', borderRadius: '999px', fontSize: '14px', fontWeight: 600, textDecoration: 'none' }}>
                 Go to Generate →
               </a>
             </div>
@@ -116,38 +116,35 @@ export default function ExportsClient({
                   key={gen.id}
                   onClick={() => setActiveId(gen.id)}
                   style={{
-                    padding: '16px 20px',
-                    background: 'white',
-                    borderRadius: '14px',
-                    border: `2px solid ${activeId === gen.id ? '#b87a38' : '#e7e5e4'}`,
-                    cursor: 'pointer',
-                    transition: 'border-color 0.15s, box-shadow 0.15s',
-                    boxShadow: activeId === gen.id ? '0 0 0 3px rgba(184,122,56,0.12)' : '0 1px 4px rgba(28,25,23,0.04)',
+                    padding: '16px 20px', background: 'var(--card-bg)', borderRadius: '14px',
+                    border: `2px solid ${activeId === gen.id ? 'var(--brand-600)' : 'var(--card-border)'}`,
+                    cursor: 'pointer', transition: 'border-color 0.15s, box-shadow 0.15s',
+                    boxShadow: activeId === gen.id ? '0 0 0 3px rgba(184,122,56,0.12)' : 'var(--card-shadow)',
                     marginBottom: '10px',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: '0 0 4px', fontSize: '14px', fontWeight: 700, color: '#1c1917', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <p style={{ margin: '0 0 4px', fontSize: '14px', fontWeight: 700, color: 'var(--text-strong)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {gen.summary || gen.jobDescription}
                       </p>
-                      <p style={{ margin: 0, fontSize: '12px', color: '#78716c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {gen.jobDescription}
                       </p>
                     </div>
-                    <span style={{ fontSize: '11px', color: '#a8a29e', flexShrink: 0 }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-subtle)', flexShrink: 0 }}>
                       {gen.createdAt ? new Date(gen.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
                     </span>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '20px', background: '#f2ebe0', color: '#7a4f1e', fontWeight: 500 }}>{gen.outputFormat}</span>
-                    <span style={{ fontSize: '11px', color: '#78716c' }}>{gen.sectionsCount} sections</span>
-                    <span style={{ fontSize: '11px', color: '#78716c' }}>{gen.keywordsCount} keywords</span>
+                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '20px', background: 'var(--chip-bg)', color: 'var(--chip-text)', border: '1px solid var(--chip-border)', fontWeight: 500 }}>{gen.outputFormat}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{gen.sectionsCount} sections</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{gen.keywordsCount} keywords</span>
                     {gen.mustHaveSkills.length > 0 && (
-                      <span style={{ fontSize: '11px', color: '#78716c' }}>Skills: {gen.mustHaveSkills.join(', ')}</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Skills: {gen.mustHaveSkills.join(', ')}</span>
                     )}
                   </div>
-                  <p style={{ margin: '6px 0 0', fontSize: '11px', fontFamily: 'monospace', color: '#a8a29e' }}>{gen.id}</p>
+                  <p style={{ margin: '6px 0 0', fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-subtle)' }}>{gen.id}</p>
                 </div>
               ))}
             </div>
@@ -157,13 +154,13 @@ export default function ExportsClient({
           {pages > 1 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '20px' }}>
               {page > 1 && (
-                <a href={`/exports?page=${page - 1}`} style={{ padding: '7px 14px', borderRadius: '999px', border: '1px solid #e7e5e4', background: 'white', fontSize: '13px', color: '#44403c', textDecoration: 'none' }}>
+                <a href={`/exports?page=${page - 1}`} style={{ padding: '7px 14px', borderRadius: '999px', border: '1px solid var(--card-border)', background: 'var(--card-bg)', fontSize: '13px', color: 'var(--text-primary)', textDecoration: 'none' }}>
                   ← Prev
                 </a>
               )}
-              <span style={{ fontSize: '13px', color: '#78716c' }}>Page {page} of {pages}</span>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Page {page} of {pages}</span>
               {page < pages && (
-                <a href={`/exports?page=${page + 1}`} style={{ padding: '7px 14px', borderRadius: '999px', border: '1px solid #e7e5e4', background: 'white', fontSize: '13px', color: '#44403c', textDecoration: 'none' }}>
+                <a href={`/exports?page=${page + 1}`} style={{ padding: '7px 14px', borderRadius: '999px', border: '1px solid var(--card-border)', background: 'var(--card-bg)', fontSize: '13px', color: 'var(--text-primary)', textDecoration: 'none' }}>
                   Next →
                 </a>
               )}
@@ -174,10 +171,10 @@ export default function ExportsClient({
         {/* Right: actions sidebar */}
         <div className="exports-actions-column" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {/* PDF Export */}
-          <div style={{ background: 'white', borderRadius: '14px', border: '1px solid #e7e5e4', padding: '20px', boxShadow: '0 1px 4px rgba(28,25,23,0.05)' }}>
-            <h2 style={{ fontSize: '14px', fontWeight: 700, color: '#1c1917', margin: '0 0 12px' }}>📥 Export PDF</h2>
+          <div style={{ background: 'var(--card-bg)', borderRadius: '14px', border: '1px solid var(--card-border)', padding: '20px', boxShadow: 'var(--card-shadow)' }}>
+            <h2 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-strong)', margin: '0 0 12px' }}>📥 Export PDF</h2>
             <form action={pdfAction} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600, color: '#44403c' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600, color: 'var(--label-color)' }}>
                 Generation ID
                 <input
                   name="generationId"
@@ -188,26 +185,24 @@ export default function ExportsClient({
                   style={{ ...inputStyle, fontSize: '12px', fontFamily: 'monospace' }}
                 />
               </label>
-              <button
-                style={{ padding: '9px 18px', borderRadius: '999px', background: '#1c1917', color: 'white', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer' }}
-              >
+              <button style={{ padding: '9px 18px', borderRadius: '999px', background: 'var(--action-btn-bg)', color: 'var(--action-btn-text)', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
                 Build PDF
               </button>
             </form>
             {pdfState.status === 'error' && (
-              <p style={{ fontSize: '12px', color: '#b91c1c', marginTop: '8px' }}>{pdfState.message}</p>
+              <p style={{ fontSize: '12px', color: 'var(--danger-text)', marginTop: '8px' }}>{pdfState.message}</p>
             )}
             {pdfData && (
-              <p style={{ fontSize: '12px', color: '#15803d', marginTop: '8px' }}>✓ PDF downloading: {pdfData.fileName}</p>
+              <p style={{ fontSize: '12px', color: 'var(--success-text)', marginTop: '8px' }}>✓ PDF downloading: {pdfData.fileName}</p>
             )}
           </div>
 
           {/* Feedback */}
-          <div style={{ background: 'white', borderRadius: '14px', border: '1px solid #e7e5e4', padding: '20px', boxShadow: '0 1px 4px rgba(28,25,23,0.05)' }}>
-            <h2 style={{ fontSize: '14px', fontWeight: 700, color: '#1c1917', margin: '0 0 12px' }}>💬 Record Feedback</h2>
+          <div style={{ background: 'var(--card-bg)', borderRadius: '14px', border: '1px solid var(--card-border)', padding: '20px', boxShadow: 'var(--card-shadow)' }}>
+            <h2 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-strong)', margin: '0 0 12px' }}>💬 Record Feedback</h2>
             <form action={feedbackFormAction} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <input type="hidden" name="generationId" value={activeId} />
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600, color: '#44403c' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600, color: 'var(--label-color)' }}>
                 Event type
                 <select name="eventType" defaultValue="view" style={{ ...inputStyle, fontSize: '12px' }}>
                   <option value="view">View</option>
@@ -218,31 +213,31 @@ export default function ExportsClient({
                   <option value="negative">👎 Negative</option>
                 </select>
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600, color: '#44403c' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600, color: 'var(--label-color)' }}>
                 Note (optional)
                 <input name="note" style={{ ...inputStyle, fontSize: '12px' }} />
               </label>
-              <button style={{ padding: '8px 16px', borderRadius: '999px', background: '#44403c', color: 'white', fontSize: '12px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
+              <button style={{ padding: '8px 16px', borderRadius: '999px', background: 'var(--label-color)', color: 'var(--action-btn-text)', fontSize: '12px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
                 Record
               </button>
             </form>
             {feedbackState.status === 'success' && (
-              <p style={{ fontSize: '12px', color: '#15803d', marginTop: '8px' }}>✓ Feedback recorded</p>
+              <p style={{ fontSize: '12px', color: 'var(--success-text)', marginTop: '8px' }}>✓ Feedback recorded</p>
             )}
             {feedbackState.status === 'error' && (
-              <p style={{ fontSize: '12px', color: '#b91c1c', marginTop: '8px' }}>{feedbackState.message}</p>
+              <p style={{ fontSize: '12px', color: 'var(--danger-text)', marginTop: '8px' }}>{feedbackState.message}</p>
             )}
           </div>
 
           {/* Analytics */}
-          <div style={{ background: 'white', borderRadius: '14px', border: '1px solid #e7e5e4', padding: '20px', boxShadow: '0 1px 4px rgba(28,25,23,0.05)' }}>
-            <h2 style={{ fontSize: '14px', fontWeight: 700, color: '#1c1917', margin: '0 0 12px' }}>📊 Analytics</h2>
+          <div style={{ background: 'var(--card-bg)', borderRadius: '14px', border: '1px solid var(--card-border)', padding: '20px', boxShadow: 'var(--card-shadow)' }}>
+            <h2 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-strong)', margin: '0 0 12px' }}>📊 Analytics</h2>
             <form action={analyticsFormAction} style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600, color: '#44403c', flex: 1 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px', fontWeight: 600, color: 'var(--label-color)', flex: 1 }}>
                 Window (days)
                 <input name="windowDays" type="number" min={1} max={365} defaultValue={30} style={{ ...inputStyle, fontSize: '12px' }} />
               </label>
-              <button style={{ padding: '9px 14px', borderRadius: '999px', background: '#44403c', color: 'white', fontSize: '12px', fontWeight: 600, border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+              <button style={{ padding: '9px 14px', borderRadius: '999px', background: 'var(--label-color)', color: 'var(--action-btn-text)', fontSize: '12px', fontWeight: 600, border: 'none', cursor: 'pointer', flexShrink: 0 }}>
                 Fetch
               </button>
             </form>
@@ -257,14 +252,14 @@ export default function ExportsClient({
                     ['👍 Positive', analyticsData.events?.positive],
                     ['👎 Negative', analyticsData.events?.negative],
                   ].map(([label, val]) => (
-                    <div key={String(label)} style={{ padding: '8px', background: '#faf6f0', borderRadius: '8px' }}>
-                      <p style={{ fontSize: '10px', color: '#78716c', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
-                      <p style={{ fontSize: '20px', fontWeight: 700, color: '#1c1917', margin: 0 }}>{val ?? 0}</p>
+                    <div key={String(label)} style={{ padding: '8px', background: 'var(--summary-bg)', borderRadius: '8px', border: '1px solid var(--summary-border)' }}>
+                      <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+                      <p style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-strong)', margin: 0 }}>{val ?? 0}</p>
                     </div>
                   ))}
                 </div>
                 {analyticsData.rates && (
-                  <div style={{ fontSize: '12px', color: '#78716c', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                     <span>Positive rate: <strong>{((analyticsData.rates.positiveRate ?? 0) * 100).toFixed(0)}%</strong></span>
                     <span>Export→Apply rate: <strong>{((analyticsData.rates.exportToApplyRate ?? 0) * 100).toFixed(0)}%</strong></span>
                   </div>
@@ -272,7 +267,7 @@ export default function ExportsClient({
               </div>
             )}
             {analyticsState.status === 'error' && (
-              <p style={{ fontSize: '12px', color: '#b91c1c', marginTop: '8px' }}>{analyticsState.message}</p>
+              <p style={{ fontSize: '12px', color: 'var(--danger-text)', marginTop: '8px' }}>{analyticsState.message}</p>
             )}
           </div>
         </div>

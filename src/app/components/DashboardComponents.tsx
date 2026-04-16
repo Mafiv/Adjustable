@@ -16,28 +16,28 @@ export function StatCard({
   return (
     <div
       style={{
-        background: 'white',
+        background: 'var(--card-bg)',
         borderRadius: '16px',
-        border: '1px solid #e7e5e4',
+        border: '1px solid var(--card-border)',
         padding: '16px 20px',
         display: 'flex',
         flexDirection: 'column',
         gap: '4px',
-        boxShadow: '0 1px 4px rgba(28,25,23,0.05)',
+        boxShadow: 'var(--card-shadow)',
       }}
     >
       <span
-        style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#a8a29e', fontWeight: 600 }}
+        style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)', fontWeight: 600 }}
       >
         {label}
       </span>
       <span
-        style={{ fontSize: '32px', fontWeight: 700, letterSpacing: '-0.03em', color: accent ?? '#1c1917', lineHeight: 1, textAlign: 'left' }}
+        style={{ fontSize: '32px', fontWeight: 700, letterSpacing: '-0.03em', color: accent ?? 'var(--text-strong)', lineHeight: 1, textAlign: 'left' }}
       >
         {value}
       </span>
       {sub && (
-        <span style={{ fontSize: '13px', color: '#78716c' }}>{sub}</span>
+        <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{sub}</span>
       )}
     </div>
   );
@@ -62,23 +62,23 @@ export function QuickAction({
         alignItems: 'flex-start',
         gap: '12px',
         padding: '10px 16px',
-        background: 'white',
+        background: 'var(--card-bg)',
         borderRadius: '14px',
-        border: '1px solid #e7e5e4',
+        border: '1px solid var(--card-border)',
         textDecoration: 'none',
-        boxShadow: '0 1px 4px rgba(28,25,23,0.05)',
+        boxShadow: 'var(--card-shadow)',
         transition: 'box-shadow 0.15s, border-color 0.15s, transform 0.15s',
       }}
       onMouseEnter={(e) => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = '0 6px 24px rgba(28,25,23,0.1)';
-        el.style.borderColor = '#d6d3d1';
+        el.style.boxShadow = 'var(--card-shadow-hover)';
+        el.style.borderColor = 'var(--neutral-300)';
         el.style.transform = 'translateY(-1px)';
       }}
       onMouseLeave={(e) => {
         const el = e.currentTarget as HTMLElement;
-        el.style.boxShadow = '0 1px 4px rgba(28,25,23,0.05)';
-        el.style.borderColor = '#e7e5e4';
+        el.style.boxShadow = 'var(--card-shadow)';
+        el.style.borderColor = 'var(--card-border)';
         el.style.transform = 'translateY(0)';
       }}
     >
@@ -87,19 +87,19 @@ export function QuickAction({
           width: '36px',
           height: '36px',
           borderRadius: '10px',
-          background: '#f2ebe0',
+          background: 'var(--chip-bg)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#b87a38',
+          color: 'var(--brand-600)',
           flexShrink: 0,
         }}
       >
         {icon}
       </span>
       <div>
-        <p style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#1c1917' }}>{label}</p>
-        <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#78716c', lineHeight: 1.4 }}>{description}</p>
+        <p style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-strong)' }}>{label}</p>
+        <p style={{ margin: '3px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.4 }}>{description}</p>
       </div>
     </Link>
   );

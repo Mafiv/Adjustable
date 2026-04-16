@@ -14,7 +14,6 @@ import { requireSessionUser } from '@/lib/auth-session';
 import { revalidatePath } from 'next/cache';
 import {
   buildFingerprint,
-  contentToLines,
   isQualityEntity,
   normalizeTags,
   normalizeTechStack,
@@ -1279,13 +1278,6 @@ export async function exportPortfolioPdf(input: unknown) {
       return `${out}${ellipsis}`;
     }
 
-    function drawSingleLine(text: string, opts: { font: typeof fReg; size: number; color: ReturnType<typeof rgb>; x: number; maxWidth: number; gapBelow: number }) {
-      const t = fitText(text, opts.font, opts.size, opts.maxWidth);
-      if (!t) return;
-      ensureRoom(opts.size + opts.gapBelow + 2);
-      page.drawText(t, { x: opts.x, y: cursorY, size: opts.size, font: opts.font, color: opts.color });
-      cursorY -= opts.size + opts.gapBelow;
-    }
 
     function drawCenteredLine(text: string, opts: { font: typeof fReg; size: number; color: ReturnType<typeof rgb>; maxWidth: number; gapBelow: number }) {
       const t = fitText(text, opts.font, opts.size, opts.maxWidth);
@@ -1512,7 +1504,7 @@ export async function exportPortfolioPdf(input: unknown) {
           const annots = page.node.get(PDFName.of('Annots')) || pdf.context.obj([]);
           const annotsArray = pdf.context.lookup(annots);
           if (annotsArray && 'push' in annotsArray) {
-            (annotsArray as any).push(linkAnnot);
+            (annotsArray as { push: (val: unknown) => void }).push(linkAnnot);
           } else {
             page.node.set(PDFName.of('Annots'), pdf.context.obj([linkAnnot]));
           }

@@ -1,80 +1,86 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 
-/* ─── Context ─────────────────────────────────────────────────────────── */
+/* ── Combined sidebar + theme context ──────────────────────────── */
+type Theme = 'light' | 'dark';
 
-type SidebarCtx = {
+interface SidebarCtx {
   collapsed: boolean;
   toggle: () => void;
-};
-
-type Theme = 'light' | 'dark';
-type ThemeCtx = {
   theme: Theme;
   toggleTheme: () => void;
-};
+}
 
-const SidebarContext = createContext<SidebarCtx>({ collapsed: false, toggle: () => {} });
-export const useSidebar = () => useContext(SidebarContext);
-const ThemeContext = createContext<ThemeCtx>({ theme: 'light', toggleTheme: () => {} });
-export const useTheme = () => useContext(ThemeContext);
+const SidebarContext = createContext<SidebarCtx>({
+  collapsed: false,
+  toggle: () => {},
+  theme: 'light',
+  toggleTheme: () => {},
+});
 
-const SIDEBAR_STORAGE_KEY = 'adjustable-sidebar-collapsed';
-const THEME_STORAGE_KEY = 'adjustable-theme';
+export function useSidebar() {
+  return useContext(SidebarContext);
+}
 
-/* ─── Shell wrapper ───────────────────────────────────────────────────── */
+/** @deprecated Use useSidebar instead */
+export function useTheme() {
+  const { theme, toggleTheme } = useContext(SidebarContext);
+  return { theme, toggleTheme };
+}
 
+/* ── AppShell (root layout provider) ──────────────────────────── */
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>('light');
 
-  // Persist & restore
+  /* Restore persisted preferences */
   useEffect(() => {
-    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-    if (stored === 'true') setCollapsed(true);
+    const savedTheme = localStorage.getItem('adjustable-theme') as Theme | null;
+    const savedCollapsed = localStorage.getItem('adjustable-sidebar-collapsed');
+    const initialTheme = savedTheme === 'dark' ? 'dark' : 'light';
+
+    setTheme(initialTheme);
+    document.documentElement.setAttribute('data-theme', initialTheme);
+
+    if (savedCollapsed === 'true') setCollapsed(true);
   }, []);
 
-  useEffect(() => {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === 'dark' || stored === 'light') {
-      setTheme(stored);
-      return;
-    }
-
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setTheme(prefersDark ? 'dark' : 'light');
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
-
-  const toggle = useCallback(() => {
+  const toggle = () => {
     setCollapsed((prev) => {
       const next = !prev;
-      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+      localStorage.setItem('adjustable-sidebar-collapsed', String(next));
       return next;
     });
-  }, []);
+  };
 
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
-  }, []);
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const next = prev === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('adjustable-theme', next);
+      return next;
+    });
+  };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
-      <SidebarContext.Provider value={{ collapsed, toggle }}>
-        <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`} style={{ display: 'flex', minHeight: '100vh' }}>
-          {children}
-        </div>
-      </SidebarContext.Provider>
-    </ThemeContext.Provider>
+    <SidebarContext.Provider value={{ collapsed, toggle, theme, toggleTheme }}>
+      {children}
+    </SidebarContext.Provider>
   );
 }
 
-/* ─── Main area wrapper ───────────────────────────────────────────────── */
+/* ── Sub-layout components ─────────────────────────────────────── */
+export function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="app-shell-layout"
+      style={{ display: 'flex', minHeight: '100vh', background: 'var(--app-main-bg)' }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export function AppMain({ children }: { children: React.ReactNode }) {
   return (
