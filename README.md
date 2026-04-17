@@ -54,3 +54,15 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Better Auth Origins
+
+For production and preview deployments, explicitly allow frontend origins for Better Auth.
+
+Set `BETTER_AUTH_TRUSTED_ORIGINS` as a comma-separated list, for example:
+
+```bash
+BETTER_AUTH_TRUSTED_ORIGINS=https://your-app.vercel.app,https://your-custom-domain.com
+```
+
+The app also auto-includes `BETTER_AUTH_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SITE_URL`, and `https://${VERCEL_URL}` when available.

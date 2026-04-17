@@ -6,6 +6,35 @@ import { nextCookies } from 'better-auth/next-js';
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
 
+function normalizeOrigin(input: string) {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed.replace(/\/+$/, '');
+  }
+}
+
+const trustedOrigins = Array.from(
+  new Set(
+    [
+      process.env.BETTER_AUTH_URL,
+      process.env.NEXT_PUBLIC_APP_URL,
+      process.env.NEXT_PUBLIC_SITE_URL,
+      process.env.FRONTEND_ORIGIN,
+      ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? '').split(','),
+      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'https://adjustable.vercel.app',
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map(normalizeOrigin)
+      .filter(Boolean)
+  )
+);
+
 if (!MONGODB_URI) {
   throw new Error('Missing MONGODB_URI in environment.');
 }
@@ -46,6 +75,7 @@ export const auth = betterAuth({
   database: mongodbAdapter(db, {
     client: mongoClient,
   }),
+  trustedOrigins,
   emailAndPassword: {
     enabled: true,
   },
