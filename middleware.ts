@@ -6,11 +6,20 @@ export function middleware(request: NextRequest) {
   const hasSessionCookie = Boolean(getSessionCookie(request));
 
   if (pathname === '/sign-in' && hasSessionCookie) {
-    return NextResponse.redirect(new URL('/', request.url));
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  const protectedPaths = ['/'];
-  const isProtectedPath = protectedPaths.includes(pathname);
+  const protectedPathPrefixes = [
+    '/dashboard',
+    '/exports',
+    '/generate',
+    '/ingest',
+    '/profile',
+    '/vault',
+  ];
+  const isProtectedPath = protectedPathPrefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
 
   if (isProtectedPath && !hasSessionCookie) {
     return NextResponse.redirect(new URL('/sign-in', request.url));
@@ -20,5 +29,13 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/sign-in', '/'],
+  matcher: [
+    '/sign-in',
+    '/dashboard/:path*',
+    '/exports/:path*',
+    '/generate/:path*',
+    '/ingest/:path*',
+    '/profile/:path*',
+    '/vault/:path*',
+  ],
 };
