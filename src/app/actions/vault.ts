@@ -2,13 +2,11 @@
 
 import { embed } from 'ai';
 import { embeddingModel } from '@/lib/models';
-import ModelClient, { isUnexpected } from '@azure-rest/ai-inference';
-import { AzureKeyCredential } from '@azure/core-auth';
+import { embedVaultTexts } from '@/lib/vault-embeddings';
 import { z } from 'zod';
 import { connectToDatabase } from '@/lib/db';
 import { PortfolioFeedback, PortfolioGeneration, Project, UserProfile } from '@/lib/db/models';
 import crypto from 'crypto';
-import { PDFDocument, StandardFonts, rgb, PDFName, PDFString } from 'pdf-lib';
 import { Types } from 'mongoose';
 import { requireSessionUser } from '@/lib/auth-session';
 import { revalidatePath } from 'next/cache';
@@ -18,7 +16,34 @@ import {
   normalizeTags,
   normalizeTechStack,
 } from '@/lib/vault-utils';
-import { withTelemetry } from '@/lib/observability';
+import {
+  buildGenerationPrompt,
+  generationOutputLooseSchema,
+  normalizeGenerationOutput,
+} from '@/lib/cv-generation';
+import { detectJobDescriptionGaps, projectMatchesMustHaveSkills } from '@/lib/cv-gaps';
+import { buildCvPdf } from '@/lib/cv-pdf';
+import {
+  getProfileCompletenessSummary,
+  normalizeCvProfile,
+  type CvProfile,
+} from '@/lib/cv-profile';
+import { validateGenerationCompleteness } from '@/lib/cv-validation';
+import { isRefusalOrMetaText, rawOutputLooksLikeRefusal } from '@/lib/cv-generation-guards';
+import { retrieveProjectsForJob } from '@/lib/cv-retrieval';
+import { logTelemetry, withTelemetry } from '@/lib/observability';
+import {
+  generateObjectWithNativeInference,
+  isModelNotFoundError,
+} from '@/lib/ai/github-inference';
+import { extractPersonalInfoHeuristics } from '@/lib/ai/heuristics';
+import {
+  buildResumeExtractionPrompt,
+  getResumeFieldsNotInCv,
+  hasAnyMergedProfileValue,
+  mergeResumeIntoProfile,
+  resumePersonalInfoSchema,
+} from '@/lib/resume-profile';
 
 const addProjectSchema = z.object({
   rawInput: z.string().min(10),
@@ -33,11 +58,12 @@ const shredResumeSchema = z.object({
 const generatePortfolioSchema = z.object({
   jobDescription: z.string().min(40),
   outputFormat: z.enum(['sections', 'resume', 'json', 'markdown']).default('sections'),
-  topK: z.number().int().min(1).max(20).default(5),
+  topK: z.number().int().min(1).max(20).default(8),
   mustHaveSkills: z.array(z.string()).default([]),
   tone: z.string().optional(),
   audience: z.string().optional(),
   includeRationale: z.boolean().default(false),
+  forceExport: z.boolean().default(false),
 });
 
 const feedbackEventSchema = z.object({
@@ -61,12 +87,21 @@ const userProfileSchema = z.object({
   phone:     z.string().max(60).default(''),
   location:  z.string().max(120).default(''),
   linkedin:  z.string().max(300).default(''),
+  github:    z.string().max(300).default(''),
   portfolio: z.string().max(300).default(''),
   summary:   z.string().max(1000).default(''),
+  languages: z.array(z.object({
+    name:        z.string().max(80).default(''),
+    proficiency: z.enum(['basic', 'intermediate', 'advanced', 'native', '']).default(''),
+  })).default([]),
   education: z.array(z.object({
     degree:      z.string().max(120).default(''),
     institution: z.string().max(120).default(''),
-    year:        z.string().max(40).default(''),
+    startDate:   z.string().max(40).default(''),
+    endDate:     z.string().max(40).default(''),
+    location:    z.string().max(120).default(''),
+    honors:      z.string().max(300).default(''),
+    coursework:  z.string().max(500).default(''),
   })).default([]),
 });
 
@@ -83,56 +118,8 @@ const updateProjectSchema = z.object({
   impactScore: z.number().int().min(1).max(10),
 });
 
-const skillCategorySchema = z.object({
-  category: z.string(),
-  skills: z.array(z.string()),
-});
 
-const generationOutputSchema = z.object({
-  summary: z.string(),
-  sections: z.array(
-    z.object({
-      title: z.string(),
-      bullets: z.array(z.string()),
-    })
-  ),
-  resumeBullets: z.array(z.string()).optional(),
-  markdown: z.string().optional(),
-  keywords: z.array(z.string()),
-  skillCategories: z.array(skillCategorySchema).optional(),
-  sources: z.array(
-    z.object({
-      projectId: z.string(),
-      evidence: z.string(),
-    })
-  ),
-  rationale: z.array(z.string()).optional(),
-});
-
-const generationOutputLooseSchema = z.object({
-  summary: z.string().optional(),
-  sections: z
-    .array(
-      z.object({
-        title: z.string().optional(),
-        bullets: z.array(z.string()).optional(),
-      })
-    )
-    .optional(),
-  resumeBullets: z.array(z.string()).optional(),
-  markdown: z.string().optional(),
-  keywords: z.array(z.string()).optional(),
-  skillCategories: z.array(skillCategorySchema.partial()).optional(),
-  sources: z
-    .array(
-      z.object({
-        projectId: z.string().optional(),
-        evidence: z.string().optional(),
-      })
-    )
-    .optional(),
-  rationale: z.array(z.string()).optional(),
-});
+// generation schemas live in src/lib/cv-generation.ts
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const atomicEntitySchema = z.object({
@@ -151,109 +138,6 @@ const atomicEntityLooseSchema = z.object({
   impactScore: z.number().min(1).max(10).optional(),
 });
 
-// Schema for extracting personal info from resume text
-const resumePersonalInfoSchema = z.object({
-  name: z.string().optional(),
-  title: z.string().optional(),
-  email: z.string().optional(),
-  phone: z.string().optional(),
-  location: z.string().optional(),
-  linkedin: z.string().optional(),
-  portfolio: z.string().optional(),
-  summary: z.string().optional(),
-  education: z.array(z.object({
-    degree: z.string().optional(),
-    institution: z.string().optional(),
-    year: z.string().optional(),
-  })).optional(),
-});
-
-function firstNonEmpty(...values: Array<string | undefined | null>) {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim();
-    }
-  }
-  return '';
-}
-
-function hasAnyProfileValue(input: {
-  name: string;
-  title: string;
-  email: string;
-  phone: string;
-  location: string;
-  linkedin: string;
-  portfolio: string;
-  summary: string;
-  education: Array<{ degree: string; institution: string; year: string }>;
-}) {
-  return (
-    Boolean(input.name) ||
-    Boolean(input.title) ||
-    Boolean(input.email) ||
-    Boolean(input.phone) ||
-    Boolean(input.location) ||
-    Boolean(input.linkedin) ||
-    Boolean(input.portfolio) ||
-    Boolean(input.summary) ||
-    input.education.length > 0
-  );
-}
-
-function extractPersonalInfoHeuristics(resumeText: string) {
-  const compact = resumeText.replace(/\s+/g, ' ').trim();
-
-  const email = compact.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? '';
-
-  const phoneCandidate =
-    compact.match(/(?:\+?\d[\d\s()\-.]{7,}\d)/)?.[0]?.trim() ?? '';
-  const phoneDigits = phoneCandidate.replace(/\D/g, '');
-  const phone = phoneDigits.length >= 9 ? phoneCandidate : '';
-
-  const linkedin =
-    compact.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/[A-Za-z0-9_\-\/.%]+/i)?.[0] ?? '';
-
-  const urlMatches = compact.match(/(?:https?:\/\/)?(?:www\.)?[A-Za-z0-9\-]+\.[A-Za-z]{2,}(?:\/[A-Za-z0-9_\-\/.%]*)?/g) ?? [];
-  const portfolio =
-    urlMatches.find((url) => !/linkedin\.com/i.test(url) && !/@/.test(url)) ?? '';
-
-  const titlePattern =
-    /(full[-\s]?stack(?:\s+developer|\s+engineer)?|software\s+engineer|software\s+developer|backend\s+developer|frontend\s+developer|data\s+engineer|devops\s+engineer|intern)/i;
-  const title = compact.match(titlePattern)?.[0] ?? '';
-
-  const beforeContact = compact
-    .split(/(?:\s(?:email|e-mail|phone|linkedin)\s)|@|(?:\+?\d[\d\s()\-.]{7,}\d)/i)[0]
-    ?.trim() ?? '';
-  const nameTokens = beforeContact
-    .replace(/[^A-Za-z\s'’-]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter((token) => /^[A-Z][A-Za-z'’-]{1,}$/.test(token))
-    .slice(0, 4);
-  const name = nameTokens.length >= 2 ? nameTokens.join(' ') : '';
-
-  return {
-    name,
-    title,
-    email,
-    phone,
-    linkedin,
-    portfolio,
-  };
-}
-
-const GITHUB_MODELS_ENDPOINT = 'https://models.github.ai/inference';
-const PRIMARY_CHAT_MODEL_ID = 'openai/gpt-4.1';
-const SECONDARY_CHAT_MODEL_ID = 'openai/gpt-4.1-mini';
-const NATIVE_CHAT_MODEL_IDS = [PRIMARY_CHAT_MODEL_ID, SECONDARY_CHAT_MODEL_ID];
-
-const githubToken = process.env.GITHUB_TOKEN ?? process.env.GITHUB_MODELS_TOKEN;
-
-const inferenceClient = githubToken
-  ? ModelClient(GITHUB_MODELS_ENDPOINT, new AzureKeyCredential(githubToken))
-  : null;
-
 function buildEmbeddingText(input: {
   title: string;
   description: string;
@@ -264,112 +148,6 @@ function buildEmbeddingText(input: {
     `Description: ${input.description}`,
     `Tech: ${input.techStack.join(', ')}`,
   ].join('\n');
-}
-
-function isModelNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const text = `${error.name} ${error.message}`.toLowerCase();
-  return text.includes('not found') || text.includes('404');
-}
-
-function getUnexpectedErrorMessage(response: { status: string; body?: unknown }) {
-  const fallback = `GitHub inference request failed with status ${response.status}.`;
-
-  if (!response.body || typeof response.body !== 'object') {
-    return fallback;
-  }
-
-  const body = response.body as {
-    error?: {
-      code?: string;
-      message?: string;
-    };
-    message?: string;
-  };
-
-  if (body.error?.message) {
-    return body.error.code
-      ? `${body.error.message} (${body.error.code})`
-      : body.error.message;
-  }
-
-  if (body.message) {
-    return body.message;
-  }
-
-  return fallback;
-}
-
-async function generateObjectWithNativeInference<TSchema extends z.ZodTypeAny>(params: {
-  schema: TSchema;
-  prompt: string;
-}) {
-  if (!inferenceClient) {
-    throw new Error('Missing GitHub token. Set GITHUB_TOKEN or GITHUB_MODELS_TOKEN.');
-  }
-
-  let lastError: unknown;
-
-  for (let index = 0; index < NATIVE_CHAT_MODEL_IDS.length; index += 1) {
-    const modelId = NATIVE_CHAT_MODEL_IDS[index];
-
-    try {
-      const response = await inferenceClient.path('/chat/completions').post({
-        body: {
-          model: modelId,
-          temperature: 0.2,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You must return only valid JSON object output matching the requested schema. Do not include markdown fences.',
-            },
-            {
-              role: 'user',
-              content: params.prompt,
-            },
-          ],
-        },
-      });
-
-      if (isUnexpected(response)) {
-        const message = getUnexpectedErrorMessage(response);
-        throw new Error(`Model ${modelId} failed (${response.status}): ${message}`);
-      }
-
-      const rawContent = response.body.choices?.[0]?.message?.content;
-      if (!rawContent) {
-        throw new Error(`Model ${modelId} returned empty content.`);
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(rawContent);
-      } catch {
-        throw new Error(`Model ${modelId} returned non-JSON content.`);
-      }
-
-      const object = params.schema.parse(parsed);
-      return { object, modelId };
-    } catch (error) {
-      lastError = error;
-      const shouldRetry =
-        index < NATIVE_CHAT_MODEL_IDS.length - 1 && isModelNotFoundError(error);
-
-      if (!shouldRetry) {
-        throw error;
-      }
-    }
-  }
-
-  throw new Error(
-    `No configured chat models are available. Tried: ${NATIVE_CHAT_MODEL_IDS.join(', ')}`,
-    { cause: lastError }
-  );
 }
 
 function scoreImpactFromText(text: string) {
@@ -481,121 +259,123 @@ function normalizeAtomicEntity(
   };
 }
 
-function normalizeGenerationOutput(
-  output: z.infer<typeof generationOutputLooseSchema>,
-  selectedProjects: Array<{
-    _id: { toString: () => string };
-    title: string;
-    description: string;
-    techStack?: string[];
-    tags?: string[];
-  }>
-): z.infer<typeof generationOutputSchema> {
-  const firstProject = selectedProjects[0];
+type AtomicEntity = z.infer<typeof atomicEntitySchema>;
 
-  const sections = (output.sections ?? [])
-    .slice(0, 8)
-    .map((section, index) => {
-      const title =
-        section.title?.trim() ||
-        selectedProjects[index]?.title ||
-        `Section ${index + 1}`;
-      const bullets = (section.bullets ?? [])
-        .map((bullet) => bullet.trim())
-        .filter(Boolean)
-        .slice(0, 8);
-
-      const fallbackBullet =
-        selectedProjects[index]?.description?.slice(0, 180) ||
-        firstProject?.description?.slice(0, 180) ||
-        `Demonstrated outcomes relevant to ${title.toLowerCase()}.`;
-
-      return {
-        title,
-        bullets: bullets.length > 0 ? bullets : [fallbackBullet],
-      };
+async function extractResumeEntities(resumeText: string, maxEntities: number) {
+  try {
+    const { object } = await generateObjectWithNativeInference({
+      schema: z.object({
+        entities: z.array(atomicEntityLooseSchema),
+      }),
+      prompt: [
+        'Decompose this resume into atomic project/achievement entities.',
+        'Each entity must stand on its own and be useful for retrieval.',
+        'For each entity include: title, description, techStack (array), tags (array), impactScore (1-10).',
+        `Return at most ${maxEntities} entities.`,
+        'Avoid duplicates. Use concise, evidence-based descriptions.',
+        `Resume:\n${resumeText}`,
+      ].join('\n'),
     });
 
-  const ensuredSections =
-    sections.length > 0
-      ? sections
-      : selectedProjects.slice(0, 3).map((project) => ({
-          title: project.title,
-          bullets: [project.description.slice(0, 180)],
-        }));
+    return {
+      extractionMode: 'llm' as const,
+      entities: object.entities
+        .slice(0, maxEntities)
+        .map((entity, index) => normalizeAtomicEntity(entity, index)),
+    };
+  } catch (error) {
+    if (!isModelNotFoundError(error)) {
+      throw error;
+    }
 
-  const keywordPool = selectedProjects.flatMap((project) => [
-    ...(project.techStack ?? []),
-    ...(project.tags ?? []),
-  ]);
-  const keywords = (output.keywords ?? keywordPool)
-    .map((keyword) => keyword.trim())
-    .filter(Boolean)
-    .filter((value, index, values) => values.indexOf(value) === index)
-    .slice(0, 20);
+    return {
+      extractionMode: 'heuristic' as const,
+      entities: heuristicResumeEntities(resumeText, maxEntities),
+    };
+  }
+}
 
-  const sources = (output.sources ?? [])
-    .map((source, index) => ({
-      projectId:
-        source.projectId?.trim() || selectedProjects[index]?._id.toString() || firstProject?._id.toString() || 'unknown',
-      evidence:
-        source.evidence?.trim() ||
-        selectedProjects[index]?.description?.slice(0, 220) ||
-        firstProject?.description?.slice(0, 220) ||
-        'Evidence unavailable.',
-    }))
-    .slice(0, 20);
+async function updateProfileFromResume(userId: string, resumeText: string) {
+  let personalInfo: z.infer<typeof resumePersonalInfoSchema> | null = null;
+  let profileAutoUpdated = false;
+  let profileFieldsNotInResume: string[] = [];
 
-  const ensuredSources =
-    sources.length > 0
-      ? sources
-      : selectedProjects.slice(0, 5).map((project) => ({
-          projectId: project._id.toString(),
-          evidence: project.description.slice(0, 220),
-        }));
+  const applyResumeProfile = async (heuristicsOnly = false) => {
+    const existingProfile = await UserProfile.findOne({ userId }).lean();
+    const heuristics = extractPersonalInfoHeuristics(resumeText);
+    const mergedProfile = mergeResumeIntoProfile({
+      existing: existingProfile as Parameters<typeof mergeResumeIntoProfile>[0]['existing'],
+      personalInfo,
+      heuristics,
+      heuristicsOnly,
+    });
 
-  const summary =
-    output.summary?.trim() ||
-    ensuredSections[0]?.bullets[0] ||
-    firstProject?.description?.slice(0, 200) ||
-    'Generated portfolio summary.';
+    if (!heuristicsOnly) {
+      profileFieldsNotInResume = getResumeFieldsNotInCv({ personalInfo, heuristics });
+    }
 
-  const resumeBullets =
-    (output.resumeBullets ?? [])
-      .map((bullet) => bullet.trim())
-      .filter(Boolean)
-      .slice(0, 20);
+    if (hasAnyMergedProfileValue(mergedProfile)) {
+      await UserProfile.findOneAndUpdate(
+        { userId },
+        { $set: mergedProfile },
+        { upsert: true, new: true }
+      );
+      profileAutoUpdated = true;
+    }
+  };
 
-  const markdown =
-    output.markdown?.trim() ||
-    [
-      `# Portfolio Summary`,
-      summary,
-      ...ensuredSections.map((section) =>
-        [`## ${section.title}`, ...section.bullets.map((bullet) => `- ${bullet}`)].join('\n')
-      ),
-    ].join('\n\n');
+  try {
+    const { object } = await generateObjectWithNativeInference({
+      schema: resumePersonalInfoSchema,
+      prompt: buildResumeExtractionPrompt(resumeText),
+    });
+    personalInfo = object;
+    await applyResumeProfile(false);
+  } catch {
+    try {
+      await applyResumeProfile(true);
+    } catch {
+      // Best effort only.
+    }
+  }
 
-  // Normalize skill categories from AI output
-  const skillCategories = (output.skillCategories ?? [])
-    .filter((cat) => cat.category?.trim() && (cat.skills ?? []).length > 0)
-    .map((cat) => ({
-      category: cat.category!.trim(),
-      skills: (cat.skills ?? []).map((s) => s.trim()).filter(Boolean),
-    }))
-    .slice(0, 10);
+  return {
+    personalInfoExtracted: Boolean(personalInfo),
+    profileAutoUpdated,
+    profileFieldsNotInResume,
+  };
+}
 
-  return generationOutputSchema.parse({
-    summary,
-    sections: ensuredSections,
-    resumeBullets: resumeBullets.length > 0 ? resumeBullets : undefined,
-    markdown,
-    keywords: keywords.length > 0 ? keywords : ['portfolio'],
-    skillCategories: skillCategories.length > 0 ? skillCategories : undefined,
-    sources: ensuredSources,
-    rationale:
-      output.rationale?.map((item) => item.trim()).filter(Boolean).slice(0, 20) || undefined,
-  });
+async function insertShreddedVaultEntities(userId: string, insertableEntities: AtomicEntity[]) {
+  if (insertableEntities.length === 0) {
+    return [];
+  }
+
+  const embeddingInputs = insertableEntities.map((entity) =>
+    buildEmbeddingText({
+      title: entity.title,
+      description: entity.description,
+      techStack: entity.techStack,
+    })
+  );
+
+  const embeddings = await embedVaultTexts(embeddingInputs);
+
+  const docs = insertableEntities.map((entity, index) => ({
+    userId,
+    title: entity.title,
+    description: entity.description,
+    fingerprint: buildFingerprint({
+      title: entity.title,
+      description: entity.description,
+    }),
+    techStack: entity.techStack,
+    impactScore: entity.impactScore,
+    tags: entity.tags,
+    embedding: embeddings[index] ?? [],
+  }));
+
+  return Project.insertMany(docs);
 }
 
 export async function addProjectToVault(input: unknown) {
@@ -764,35 +544,10 @@ export async function shredResumeToVault(input: unknown) {
 
     await connectToDatabase();
 
-    let entities: Array<z.infer<typeof atomicEntitySchema>> = [];
-    let extractionMode: 'llm' | 'heuristic' = 'llm';
-
-    try {
-      const { object } = await generateObjectWithNativeInference({
-        schema: z.object({
-          entities: z.array(atomicEntityLooseSchema),
-        }),
-        prompt: [
-          'Decompose this resume into atomic project/achievement entities.',
-          'Each entity must stand on its own and be useful for retrieval.',
-          'For each entity include: title, description, techStack (array), tags (array), impactScore (1-10).',
-          `Return at most ${maxEntities} entities.`,
-          'Avoid duplicates. Use concise, evidence-based descriptions.',
-          `Resume:\n${resumeText}`,
-        ].join('\n'),
-      });
-
-      entities = object.entities
-        .slice(0, maxEntities)
-        .map((entity, index) => normalizeAtomicEntity(entity, index));
-    } catch (error) {
-      if (!isModelNotFoundError(error)) {
-        throw error;
-      }
-
-      extractionMode = 'heuristic';
-      entities = heuristicResumeEntities(resumeText, maxEntities);
-    }
+    const [{ extractionMode, entities }, profileResult] = await Promise.all([
+      extractResumeEntities(resumeText, maxEntities),
+      updateProfileFromResume(userId, resumeText),
+    ]);
 
     const qualityEntities = entities.filter(isQualityEntity);
     const seenFingerprints = new Set<string>();
@@ -824,172 +579,10 @@ export async function shredResumeToVault(input: unknown) {
         )
     );
 
-    const docs = await Promise.all(
-      insertableEntities.map(async (entity) => {
-        const fingerprint = buildFingerprint({
-          title: entity.title,
-          description: entity.description,
-        });
-        const { embedding } = await embed({
-          model: embeddingModel,
-          value: buildEmbeddingText({
-            title: entity.title,
-            description: entity.description,
-            techStack: entity.techStack,
-          }),
-        });
+    const inserted = await insertShreddedVaultEntities(userId, insertableEntities);
 
-        return {
-          userId,
-          title: entity.title,
-          description: entity.description,
-          fingerprint,
-          techStack: entity.techStack,
-          impactScore: entity.impactScore,
-          tags: entity.tags,
-          embedding,
-        };
-      })
-    );
-
-    const inserted = docs.length > 0 ? await Project.insertMany(docs) : [];
-
-    // Extract personal info from resume and update UserProfile
-    let personalInfo: z.infer<typeof resumePersonalInfoSchema> | null = null;
-    let profileAutoUpdated = false;
-    try {
-      const { object } = await generateObjectWithNativeInference({
-        schema: resumePersonalInfoSchema,
-        prompt: [
-          'Extract personal information from this resume text.',
-          'Infer the candidate name from the resume header even if the label "full name" is not explicitly written.',
-          'IMPORTANT: Return the name as a clean full name only — no job titles, no extra words. Example: "Abdi Sileshi Worku", NOT "Abdi Sileshi Worku Software".',
-          'Prioritize contact/header details: name, title, email, phone, location, linkedin, portfolio.',
-          'Return only the information that is explicitly present in the resume.',
-          'For phone numbers, normalize to international format with spaces: e.g. "+251 988 734 632".',
-          'For education, extract all degrees with their institutions and years.',
-          'IMPORTANT: Fix common typos in education data — e.g. "unversity" → "University", "Engginering" → "Engineering", "AdamaScience" → "Adama Science".',
-          'For links (linkedin, portfolio), return only the URL or username.',
-          `Resume:\n${resumeText.slice(0, 15000)}`,
-        ].join('\n'),
-      });
-      personalInfo = object;
-
-      const heuristics = extractPersonalInfoHeuristics(resumeText);
-      const existingProfile = await UserProfile.findOne({ userId }).lean();
-
-      const existingEducation =
-        ((existingProfile?.education as Array<{ degree?: string; institution?: string; year?: string }> | undefined)
-          ?? [])
-          .map((edu) => ({
-            degree: firstNonEmpty(edu.degree),
-            institution: firstNonEmpty(edu.institution),
-            year: firstNonEmpty(edu.year),
-          }))
-          .filter((edu) => edu.degree || edu.institution || edu.year);
-
-      const extractedEducation = (personalInfo.education ?? [])
-        .map((edu) => ({
-          degree: firstNonEmpty(edu.degree),
-          institution: firstNonEmpty(edu.institution),
-          year: firstNonEmpty(edu.year),
-        }))
-        .filter((edu) => edu.degree || edu.institution || edu.year);
-
-      const mergedEducation = existingEducation.length > 0 ? existingEducation : extractedEducation;
-
-      const mergedProfile = {
-        name: firstNonEmpty(
-          existingProfile?.name as string | undefined,
-          personalInfo.name,
-          heuristics.name
-        ),
-        title: firstNonEmpty(
-          existingProfile?.title as string | undefined,
-          personalInfo.title,
-          heuristics.title
-        ),
-        email: firstNonEmpty(
-          existingProfile?.email as string | undefined,
-          personalInfo.email,
-          heuristics.email
-        ),
-        phone: firstNonEmpty(
-          existingProfile?.phone as string | undefined,
-          personalInfo.phone,
-          heuristics.phone
-        ),
-        location: firstNonEmpty(
-          existingProfile?.location as string | undefined,
-          personalInfo.location
-        ),
-        linkedin: firstNonEmpty(
-          existingProfile?.linkedin as string | undefined,
-          personalInfo.linkedin,
-          heuristics.linkedin
-        ),
-        portfolio: firstNonEmpty(
-          existingProfile?.portfolio as string | undefined,
-          personalInfo.portfolio,
-          heuristics.portfolio
-        ),
-        summary: firstNonEmpty(
-          existingProfile?.summary as string | undefined,
-          personalInfo.summary
-        ),
-        education: mergedEducation,
-      };
-
-      // Save to UserProfile (upsert) using safe merge; never overwrite known values with empty strings.
-      if (hasAnyProfileValue(mergedProfile)) {
-        await UserProfile.findOneAndUpdate(
-          { userId },
-          {
-            $set: mergedProfile,
-          },
-          { upsert: true, new: true }
-        );
-        profileAutoUpdated = true;
-      }
-    } catch {
-      // Personal info extraction is best-effort; don't fail the whole operation
-
-      // Fallback heuristic-only update if LLM extraction fails.
-      try {
-        const existingProfile = await UserProfile.findOne({ userId }).lean();
-        const heuristics = extractPersonalInfoHeuristics(resumeText);
-
-        const mergedProfile = {
-          name: firstNonEmpty(existingProfile?.name as string | undefined, heuristics.name),
-          title: firstNonEmpty(existingProfile?.title as string | undefined, heuristics.title),
-          email: firstNonEmpty(existingProfile?.email as string | undefined, heuristics.email),
-          phone: firstNonEmpty(existingProfile?.phone as string | undefined, heuristics.phone),
-          location: firstNonEmpty(existingProfile?.location as string | undefined),
-          linkedin: firstNonEmpty(existingProfile?.linkedin as string | undefined, heuristics.linkedin),
-          portfolio: firstNonEmpty(existingProfile?.portfolio as string | undefined, heuristics.portfolio),
-          summary: firstNonEmpty(existingProfile?.summary as string | undefined),
-          education:
-            (existingProfile?.education as Array<{ degree?: string; institution?: string; year?: string }> | undefined)
-              ?.map((edu) => ({
-                degree: firstNonEmpty(edu.degree),
-                institution: firstNonEmpty(edu.institution),
-                year: firstNonEmpty(edu.year),
-              }))
-              .filter((edu) => edu.degree || edu.institution || edu.year) ?? [],
-        };
-
-        if (hasAnyProfileValue(mergedProfile)) {
-          await UserProfile.findOneAndUpdate(
-            { userId },
-            { $set: mergedProfile },
-            { upsert: true, new: true }
-          );
-          profileAutoUpdated = true;
-        }
-      } catch {
-        // Best effort only.
-      }
-    }
+    revalidatePath('/vault');
+    revalidatePath('/profile');
 
     return {
       extractionMode,
@@ -1004,8 +597,27 @@ export async function shredResumeToVault(input: unknown) {
         tags: doc.tags,
         impactScore: doc.impactScore,
       })),
-      personalInfoExtracted: personalInfo ? true : false,
-      profileAutoUpdated,
+      ...profileResult,
+    };
+  });
+}
+
+export async function getGeneratePreflight() {
+  return withTelemetry('vault.getGeneratePreflight', {}, async () => {
+    const user = await requireSessionUser();
+    await connectToDatabase();
+
+    const [profileDoc, projectCount] = await Promise.all([
+      UserProfile.findOne({ userId: user.id }).lean(),
+      Project.countDocuments({ userId: user.id }),
+    ]);
+
+    const profile = normalizeCvProfile(profileDoc as Partial<CvProfile> | null);
+    const profileCompleteness = getProfileCompletenessSummary(profile);
+
+    return {
+      vaultProjectCount: projectCount,
+      profileCompleteness,
     };
   });
 }
@@ -1021,6 +633,7 @@ export async function generatePortfolioFromJob(input: unknown) {
       tone,
       audience,
       includeRationale,
+      forceExport,
     } = generatePortfolioSchema.parse(input);
     const userId = user.id;
 
@@ -1031,115 +644,184 @@ export async function generatePortfolioFromJob(input: unknown) {
       value: jobDescription,
     });
 
-    const vectorIndex =
-      process.env.MONGODB_VECTOR_INDEX ?? 'adjustable-vectors';
-    const numCandidates = Math.max(topK * 10, 50);
+    const retrieval = await retrieveProjectsForJob({
+      userId,
+      jobDescription,
+      queryVector: embedding,
+      topK,
+    });
 
-    const candidates = await Project.aggregate([
-    {
-      $vectorSearch: {
-        index: vectorIndex,
-        path: 'embedding',
-        queryVector: embedding,
+    const { candidates, retrievalMode, vectorIndex, numCandidates, vaultProjectCount, projectsWithEmbeddings } =
+      retrieval;
+
+    logTelemetry({
+      level: 'info',
+      operation: 'vault.generatePortfolioFromJob.retrieval',
+      timestamp: new Date().toISOString(),
+      context: {
+        topK,
         numCandidates,
-        limit: topK,
-        filter: { userId },
+        retrievalMode,
+        vaultProjectCount,
+        projectsWithEmbeddings,
+        candidateCount: candidates.length,
+        candidateTitles: candidates.map((project) => project.title),
+        mustHaveSkills,
       },
-    },
-    {
-      $project: {
-        title: 1,
-        description: 1,
-        techStack: 1,
-        impactScore: 1,
-        tags: 1,
-        score: { $meta: 'vectorSearchScore' },
-      },
-    },
-  ]);
+    });
+
+    if (vaultProjectCount === 0) {
+      throw new Error(
+        'Your vault is empty. Add projects via Ingest or Vault before generating a tailored CV.'
+      );
+    }
 
     const filtered = mustHaveSkills.length
-      ? candidates.filter((project) =>
-          mustHaveSkills.every((skill) =>
-            (project.techStack ?? []).includes(skill)
-          )
-        )
+      ? candidates.filter((project) => projectMatchesMustHaveSkills(project, mustHaveSkills))
       : candidates;
 
-    const selectedProjects = filtered.length > 0 ? filtered : candidates;
+    const mustHaveSkillsFilterApplied = mustHaveSkills.length > 0;
+    const mustHaveSkillsFilterReduced =
+      mustHaveSkillsFilterApplied && filtered.length < candidates.length;
 
-    const promptPayload = {
-    jobDescription,
-    outputFormat,
-    tone,
-    audience,
-    mustHaveSkills,
-    projects: selectedProjects.map((project) => ({
+    let selectedProjects = filtered.length > 0 ? filtered : candidates;
+
+    if (mustHaveSkillsFilterApplied && filtered.length === 0) {
+      logTelemetry({
+        level: 'info',
+        operation: 'vault.generatePortfolioFromJob.mustHaveSkillsFallback',
+        timestamp: new Date().toISOString(),
+        context: {
+          mustHaveSkills,
+          message: 'Must-have skills filter removed all candidates; falling back to unfiltered vector results.',
+        },
+      });
+      selectedProjects = candidates;
+    }
+
+    if (selectedProjects.length === 0) {
+      throw new Error(
+        retrievalMode === 'vector'
+          ? 'Vector search returned no matching projects for this job description. Your vault has projects but they may be missing embeddings — try re-ingesting your resume, or add projects manually.'
+          : 'No projects could be selected from your vault for this job description.'
+      );
+    }
+
+    const mappedProjects = selectedProjects.map((project) => ({
       id: project._id.toString(),
       title: project.title,
       description: project.description,
-      techStack: project.techStack,
+      techStack: project.techStack ?? [],
       impactScore: project.impactScore,
-      tags: project.tags,
-    })),
-  };
+      tags: project.tags ?? [],
+    }));
 
-    const prompt = [
-      'You are an expert resume designer and ATS optimization specialist.',
-      'Your task is to generate a job-specific, ATS-optimized CV draft based on the user project vault.',
-      '',
-      '### CORE RULES:',
-      '- Only include relevant information that matches the job description.',
-      '- Do NOT invent skills or experience. Stay grounded in the user payload.',
-      '- Use strong action verbs (Built, Designed, Optimized, Led, Resolved, Integrated).',
-      '- Quantify achievements with REAL measurable impact (e.g., "Improved API response time by 40%", "Reduced production bugs by 60%").',
-      '- Focus on IMPACT and OUTCOMES, not generic responsibilities.',
-      '- Keep bullet points concise, specific, and high-impact.',
-      '- AVOID generic buzzwords like "Proven ability", "results-driven professional". Be specific.',
-      '',
-      `### JOB DESCRIPTION:\n${jobDescription}`,
-      '',
-      '### OBJECTIVES:',
-      '1. SUMMARY: A 2-4 line professional profile that is SPECIFIC and OUTCOME-FOCUSED. Mention the exact stack, domain, and scale of work. Example: "Full-stack developer specializing in Next.js and Express.js, focused on building and debugging SaaS platforms with real-time AI integrations. Experienced in optimizing API performance and improving dashboard responsiveness in production systems."',
-      '2. SECTIONS: Group matched projects into logical experience blocks. Each block MUST have:',
-      '   - A clear, descriptive project/role name (e.g., "SaaS AI Debugging & Optimization")',
-      '   - High-impact bullet points with measurable outcomes',
-      '   - Start each bullet with a strong action verb + specific result',
-      '3. KEYWORDS: Extract matching technical skills and tools from the JD.',
-      '4. SKILL_CATEGORIES: Group the extracted keywords into categories. Use these category names: "Frontend", "Backend", "Database", "AI / Tools", "Engineering", "Cloud / DevOps", "Other". Each category should have a "category" (string) and "skills" (string array). Only include categories that have matching skills.',
-      '',
-      `### FORMAT: ${outputFormat}`,
-      includeRationale ? '- Include rationale statements in the rationale array explaining why certain projects were selected.' : '',
-      'Return a JSON object matching the requested schema. Include the "skillCategories" array.',
-      `### USER DATA PAYLOAD:\n${JSON.stringify(promptPayload)}`,
-    ].join('\n');
+    const prompt = buildGenerationPrompt({
+      jobDescription,
+      outputFormat,
+      tone,
+      audience,
+      mustHaveSkills,
+      includeRationale,
+      projects: mappedProjects,
+    });
 
-    const { object } = await generateObjectWithNativeInference({
+    const { object: rawObject, modelId } = await generateObjectWithNativeInference({
       schema: generationOutputLooseSchema,
       prompt,
     });
 
-    const normalizedOutput = normalizeGenerationOutput(object, selectedProjects);
+    const refusalDetected = rawOutputLooksLikeRefusal(rawObject);
+
+    logTelemetry({
+      level: 'info',
+      operation: 'vault.generatePortfolioFromJob.llm',
+      timestamp: new Date().toISOString(),
+      context: {
+        modelId,
+        promptLength: prompt.length,
+        refusalDetected,
+        rawSummaryLength: rawObject.summary?.length ?? 0,
+        rawWorkExperienceCount: rawObject.workExperience?.length ?? 0,
+        rawProjectCount: rawObject.projects?.length ?? 0,
+        rawSectionCount: rawObject.sections?.length ?? 0,
+      },
+    });
+
+    if (process.env.CV_GENERATION_DEBUG === 'true') {
+      logTelemetry({
+        level: 'info',
+        operation: 'vault.generatePortfolioFromJob.llm.debug',
+        timestamp: new Date().toISOString(),
+        context: { promptPreview: prompt.slice(0, 4000), rawObject },
+      });
+    }
+
+    const normalizedOutput = normalizeGenerationOutput(rawObject, selectedProjects);
+
+    const [allVaultProjects, profileDoc] = await Promise.all([
+      Project.find({ userId }, { techStack: 1, tags: 1, title: 1, description: 1 }).lean(),
+      UserProfile.findOne({ userId }).lean(),
+    ]);
+
+    const jdGaps = detectJobDescriptionGaps({
+      jobDescription,
+      keywords: normalizedOutput.keywords,
+      mustHaveSkills,
+      vaultProjects: allVaultProjects,
+    });
+
+    const profile = normalizeCvProfile(profileDoc as Partial<CvProfile> | null);
+    const profileCompleteness = getProfileCompletenessSummary(profile);
+    const completeness = validateGenerationCompleteness({
+      content: normalizedOutput,
+      matchedProjectCount: selectedProjects.length,
+      strict: !forceExport,
+      refusalDetected,
+    });
+
+    if (refusalDetected && !forceExport) {
+      throw new Error(
+        'AI returned explanatory text instead of grounded CV content. Your vault projects were matched — try generating again, or add richer project descriptions in your vault.'
+      );
+    }
 
     const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
 
     const generation = await PortfolioGeneration.create({
-    userId,
-    jobDescription,
-    outputFormat,
-    projectIds: selectedProjects.map((project) => project._id),
-    content: normalizedOutput,
-    promptHash,
-    model: PRIMARY_CHAT_MODEL_ID,
-    vectorIndex,
-    topK,
-    mustHaveSkills,
-  });
+      userId,
+      jobDescription,
+      outputFormat,
+      projectIds: selectedProjects.map((project) => project._id),
+      content: normalizedOutput,
+      promptHash,
+      model: modelId,
+      vectorIndex,
+      topK,
+      mustHaveSkills,
+    });
 
     return {
       generationId: generation._id.toString(),
       format: outputFormat,
       content: normalizedOutput,
+      retrieval: {
+        topK,
+        numCandidates,
+        retrievalMode,
+        vaultProjectCount,
+        projectsWithEmbeddings,
+        candidateCount: candidates.length,
+        selectedCount: selectedProjects.length,
+        candidateTitles: candidates.map((project) => project.title as string),
+        mustHaveSkillsFilterApplied,
+        mustHaveSkillsFilterReduced,
+        mustHaveSkillsFilterCount: filtered.length,
+      },
+      jdGaps,
+      profileCompleteness,
+      completeness,
+      blockedExport: completeness.blocked && !forceExport,
     };
   });
 }
@@ -1147,7 +829,10 @@ export async function generatePortfolioFromJob(input: unknown) {
 export async function exportPortfolioPdf(input: unknown) {
   return withTelemetry('vault.exportPortfolioPdf', {}, async () => {
     const user = await requireSessionUser();
-    const { generationId } = exportPdfSchema.parse(input);
+    const parsed = exportPdfSchema
+      .extend({ forceExport: z.boolean().optional() })
+      .parse(input);
+    const { generationId, forceExport = false } = parsed;
     const userId = user.id;
 
     await connectToDatabase();
@@ -1165,595 +850,72 @@ export async function exportPortfolioPdf(input: unknown) {
       throw new Error('Generation not found');
     }
 
-    const content = generation.content as {
-      summary?: string;
-      sections?: Array<{ title?: string; bullets?: string[] }>;
-      resumeBullets?: string[];
-      keywords?: string[];
-    };
+    const matchedProjects = await Project.find({
+      _id: { $in: generation.projectIds ?? [] },
+      userId,
+    }).lean();
 
-    // Load personal profile (may be null if user hasn't filled it in yet)
-    const profileDoc = await UserProfile.findOne({ userId }).lean();
-    const profile = {
-      name:      (profileDoc?.name      as string | undefined) ?? '',
-      title:     (profileDoc?.title     as string | undefined) ?? '',
-      email:     (profileDoc?.email     as string | undefined) ?? '',
-      phone:     (profileDoc?.phone     as string | undefined) ?? '',
-      location:  (profileDoc?.location  as string | undefined) ?? '',
-      linkedin:  (profileDoc?.linkedin  as string | undefined) ?? '',
-      portfolio: (profileDoc?.portfolio as string | undefined) ?? '',
-      summary:   (profileDoc?.summary   as string | undefined) ?? '',
-      education: (profileDoc?.education as Array<{ degree: string; institution: string; year: string }> | undefined) ?? [],
-    };
+    const content = normalizeGenerationOutput(
+      generation.content as z.infer<typeof generationOutputLooseSchema>,
+      matchedProjects
+    );
+    const matchedProjectCount = matchedProjects.length;
 
-    // ── Layout constants (A4 in points) ──────────────────────────────────
-    const PAGE_W = 595;
-    const PAGE_H = 842;
-    const ML = 52;               // margin left
-    const MR = 52;               // margin right
-    const MT = 54;               // margin top (first page)
-    const MB = 48;               // margin bottom (footer area)
-    const CW = PAGE_W - ML - MR; // content width
-
-    // ── Colors ───────────────────────────────────────────────────────────
-    const cDark   = rgb(0.11, 0.09, 0.09); // #1C1717
-    const cMid    = rgb(0.47, 0.44, 0.42); // #786F6B
-    const cAccent = rgb(0.40, 0.22, 0.06); // #663810
-    const cRule   = rgb(0.87, 0.85, 0.84); // #DED9D6
-
-    // ── Font setup ───────────────────────────────────────────────────────
-    const pdf       = await PDFDocument.create();
-    const fReg      = await pdf.embedFont(StandardFonts.Helvetica);
-    const fBold     = await pdf.embedFont(StandardFonts.HelveticaBold);
-
-    let page    = pdf.addPage([PAGE_W, PAGE_H]);
-    let cursorY = PAGE_H - MT;
-
-    const S = {
-      name: 22,
-      title: 12,
-      meta: 9.25,
-      section: 10,
-      subhead: 11,
-      body: 10,
-      small: 8,
-    };
-
-    // ── Helpers ──────────────────────────────────────────────────────────
-
-    /** Word-wrap text to fit within maxWidth, returning display lines. */
-    function wrapText(text: string, font: typeof fReg, size: number, maxWidth: number): string[] {
-      const words = text.replace(/\s+/g, ' ').trim().split(' ');
-      const out: string[] = [];
-      let cur = '';
-      for (const word of words) {
-        const trial = cur ? `${cur} ${word}` : word;
-        if (font.widthOfTextAtSize(trial, size) > maxWidth && cur) {
-          out.push(cur);
-          cur = word;
-        } else {
-          cur = trial;
-        }
-      }
-      if (cur) out.push(cur);
-      return out.length > 0 ? out : [''];
-    }
-
-    /** Ensure at least `needed` pts remain; otherwise add a new page. */
-    function ensureRoom(needed: number) {
-      if (cursorY - needed < MB) {
-        page = pdf.addPage([PAGE_W, PAGE_H]);
-        cursorY = PAGE_H - MT;
-      }
-    }
-
-    /** Draw word-wrapped text block, advancing cursorY. */
-    function drawBlock(
-      text: string,
-      font: typeof fReg,
-      size: number,
-      color: ReturnType<typeof rgb>,
-      x: number,
-      maxWidth: number,
-      lineGap = 4
-    ) {
-      const lines = wrapText(text, font, size, maxWidth);
-      for (const line of lines) {
-        ensureRoom(size + lineGap);
-        page.drawText(line, { x, y: cursorY, size, font, color });
-        cursorY -= size + lineGap;
-      }
-    }
-
-    function fitText(text: string, font: typeof fReg, size: number, maxWidth: number) {
-      const input = text.replace(/\s+/g, ' ').trim();
-      if (!input) return '';
-      if (font.widthOfTextAtSize(input, size) <= maxWidth) return input;
-
-      const ellipsis = '…';
-      let out = input;
-      while (out.length > 1 && font.widthOfTextAtSize(`${out}${ellipsis}`, size) > maxWidth) {
-        out = out.slice(0, -1);
-      }
-      return `${out}${ellipsis}`;
-    }
-
-
-    function drawCenteredLine(text: string, opts: { font: typeof fReg; size: number; color: ReturnType<typeof rgb>; maxWidth: number; gapBelow: number }) {
-      const t = fitText(text, opts.font, opts.size, opts.maxWidth);
-      if (!t) return;
-      ensureRoom(opts.size + opts.gapBelow + 2);
-      const width = opts.font.widthOfTextAtSize(t, opts.size);
-      const x = Math.max(ML, ML + (CW - width) / 2);
-      page.drawText(t, { x, y: cursorY, size: opts.size, font: opts.font, color: opts.color });
-      cursorY -= opts.size + opts.gapBelow;
-    }
-
-    function formatContactValue(value: string) {
-      const trimmed = value.trim();
-      if (!trimmed) return '';
-
-      return trimmed
-        .replace(/^mailto:/i, '')
-        .replace(/^tel:/i, '')
-        .replace(/^https?:\/\//i, '')
-        .replace(/^www\./i, '')
-        .replace(/\/+$/, '');
-    }
-
-    /** Draw a full-width horizontal rule. */
-    function drawRule(thickness = 0.6, color = cRule) {
-      page.drawLine({
-        start: { x: ML, y: cursorY },
-        end:   { x: PAGE_W - MR, y: cursorY },
-        thickness,
-        color,
-      });
-    }
-
-    /** Draw a section header label + rule, then advance cursorY. */
-    function drawSectionHeader(label: string) {
-      ensureRoom(34);
-      cursorY -= 12; // breathing room above section
-      page.drawText(label.toUpperCase(), {
-        x: ML, y: cursorY,
-        size: S.section, font: fBold, color: cDark,
-      });
-      cursorY -= 8;
-      drawRule(0.6, cRule);
-      cursorY -= 10;
-    }
-
-    function drawLeftRightLine(opts: {
-      left: string;
-      right?: string;
-      sizeLeft?: number;
-      sizeRight?: number;
-      fontLeft?: typeof fReg;
-      fontRight?: typeof fReg;
-      colorLeft?: ReturnType<typeof rgb>;
-      colorRight?: ReturnType<typeof rgb>;
-      gapBelow?: number;
-    }) {
-      const {
-        left,
-        right,
-        sizeLeft = S.subhead,
-        sizeRight = S.meta,
-        fontLeft = fBold,
-        fontRight = fReg,
-        colorLeft = cDark,
-        colorRight = cMid,
-        gapBelow = 6,
-      } = opts;
-
-      const l = left.trim();
-      const r = (right ?? '').trim();
-      if (!l && !r) return;
-
-      ensureRoom(sizeLeft + gapBelow + 2);
-
-      // Keep the left side from colliding with the right side.
-      const rightW = r ? fontRight.widthOfTextAtSize(r, sizeRight) : 0;
-      const leftMax = Math.max(0, CW - (r ? (rightW + 10) : 0));
-      const leftLine = wrapText(l, fontLeft, sizeLeft, leftMax)[0] ?? '';
-
-      page.drawText(leftLine, { x: ML, y: cursorY, size: sizeLeft, font: fontLeft, color: colorLeft });
-      if (r) {
-        page.drawText(r, {
-          x: PAGE_W - MR - rightW,
-          y: cursorY,
-          size: sizeRight,
-          font: fontRight,
-          color: colorRight,
-        });
-      }
-
-      cursorY -= sizeLeft + gapBelow;
-    }
-
-    /** Draw bullet point (dot + wrapped text). */
-    function drawBullet(text: string) {
-      const bulletIndent = 14;
-      const textX = ML + bulletIndent;
-      const lines = wrapText(text, fReg, S.body, CW - bulletIndent);
-      ensureRoom(14);
-      page.drawText('•', { x: ML + 2, y: cursorY, size: S.body, font: fBold, color: cDark });
-      for (let i = 0; i < lines.length; i++) {
-        if (i > 0) ensureRoom(14);
-        page.drawText(lines[i], { x: textX, y: cursorY, size: S.body, font: fReg, color: cDark });
-        if (i < lines.length - 1) cursorY -= 13;
-      }
-      cursorY -= 14;
-    }
-
-    // ── SECTION 1 — Header ───────────────────────────────────────────────
-
-    // Clean professional header: Name (uppercase, bold, centered)
-    const rawName = profile.name.trim();
-    // Strip accidental trailing words that match the job title to avoid "ABDI WORKU SOFTWARE" duplication
-    let cleanName = rawName;
-    if (rawName && profile.title.trim()) {
-      const titleWords = profile.title.trim().toLowerCase().split(/\s+/);
-      const nameWords = rawName.split(/\s+/);
-      // If the last word(s) of the name match the first word of the title, remove them
-      while (
-        nameWords.length > 2 &&
-        titleWords.includes(nameWords[nameWords.length - 1].toLowerCase())
-      ) {
-        nameWords.pop();
-      }
-      cleanName = nameWords.join(' ');
-    }
-    const displayName = cleanName || 'Portfolio Resume';
-    const displayHeaderName = displayName === 'Portfolio Resume'
-      ? displayName
-      : displayName.toUpperCase();
-    drawCenteredLine(displayHeaderName, {
-      font: fBold,
-      size: S.name + 1,
-      color: cDark,
-      maxWidth: CW,
-      gapBelow: 6,
+    const completeness = validateGenerationCompleteness({
+      content,
+      matchedProjectCount,
+      strict: !forceExport,
+      refusalDetected:
+        isRefusalOrMetaText(content.summary) ||
+        content.workExperience.some(
+          (entry) =>
+            isRefusalOrMetaText(entry.company) ||
+            isRefusalOrMetaText(entry.role) ||
+            entry.bullets.some((bullet) => isRefusalOrMetaText(bullet))
+        ),
     });
 
-    // Job title directly under name (slightly smaller, regular weight).
-    if (profile.title.trim()) {
-      drawCenteredLine(profile.title.trim(), {
-        font: fReg,
-        size: S.title + 2,
-        color: cMid,
-        maxWidth: CW,
-        gapBelow: 12,
+    if (!completeness.ok && !forceExport) {
+      throw new Error(
+        `PDF export blocked: generated content is too sparse (${completeness.warnings.join(' ')})`
+      );
+    }
+
+    if (completeness.warnings.length > 0) {
+      logTelemetry({
+        level: 'info',
+        operation: 'vault.exportPortfolioPdf.completenessWarning',
+        timestamp: new Date().toISOString(),
+        context: { generationId, warnings: completeness.warnings, metrics: completeness.metrics },
       });
     }
 
-    // Contact details — each on its own clean line, centered, with clickable links
-    const contactItems: Array<{ text: string; link?: string }> = [];
-    if (profile.phone.trim()) {
-      let phoneVal = formatContactValue(profile.phone);
-      const digits = phoneVal.replace(/\D/g, '');
-      if (digits.length >= 9 && !phoneVal.startsWith('+')) {
-        phoneVal = '+' + phoneVal.replace(/^0+/, '');
-      }
-      const d = phoneVal.replace(/\D/g, '');
-      if (d.length >= 9) {
-        phoneVal = '+' + d.replace(/(\d{3})(?=\d)/g, '$1 ').trim();
-      }
-      contactItems.push({ text: phoneVal, link: `tel:${phoneVal.replace(/\s+/g, '')}` });
-    }
-    if (profile.email.trim()) {
-      const emailVal = formatContactValue(profile.email);
-      contactItems.push({ text: emailVal, link: `mailto:${emailVal}` });
-    }
-    if (profile.linkedin.trim()) {
-      const lnVal = formatContactValue(profile.linkedin);
-      let lnLink = lnVal;
-      if (!lnLink.startsWith('http')) lnLink = 'https://' + lnLink;
-      contactItems.push({ text: lnVal, link: lnLink });
-    }
-    if (profile.portfolio.trim()) {
-      const portVal = formatContactValue(profile.portfolio);
-      const portLower = portVal.toLowerCase();
-      // Filter out redundant domains or snippets that look like they came from the email
-      const isCommonDomain = ['gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com'].includes(portLower);
-      const isPartOfEmail = profile.email.toLowerCase().includes(portLower);
-      if (!isCommonDomain && !isPartOfEmail && portVal.length >= 4) {
-        let portLink = portVal;
-        if (!portLink.startsWith('http')) portLink = 'https://' + portLink;
-        contactItems.push({ text: portVal, link: portLink });
-      }
-    }
+    const profileDoc = await UserProfile.findOne({ userId }).lean();
+    const profile = normalizeCvProfile(profileDoc as Partial<CvProfile> | null);
 
-    if (contactItems.length > 0) {
-      const size = S.meta + 0.5;
-      const gapBelow = 10;
-      const separator = '  |  ';
-      const sepWidth = fReg.widthOfTextAtSize(separator, size);
-      
-      let totalWidth = 0;
-      for (let i = 0; i < contactItems.length; i++) {
-        totalWidth += fReg.widthOfTextAtSize(contactItems[i].text, size);
-        if (i < contactItems.length - 1) totalWidth += sepWidth;
-      }
+    const { base64, bytes, renderStats, pageCount } = await buildCvPdf(content, profile);
 
-      ensureRoom(size + gapBelow + 2);
-      
-      let curX = Math.max(ML, ML + (CW - totalWidth) / 2);
-      
-      for (let i = 0; i < contactItems.length; i++) {
-        const item = contactItems[i];
-        const itemWidth = fReg.widthOfTextAtSize(item.text, size);
-        
-        // Draw segment text
-        page.drawText(item.text, { x: curX, y: cursorY, size, font: fReg, color: cMid });
-        
-        // Add link annotation if present
-        if (item.link) {
-          const linkAnnot = pdf.context.obj({
-            Type: 'Annot',
-            Subtype: 'Link',
-            Rect: [curX, cursorY - 2, curX + itemWidth, cursorY + size + 2],
-            Border: [0, 0, 0],
-            A: {
-              Type: 'Action',
-              S: 'URI',
-              URI: PDFString.of(item.link),
-            },
-          });
-          const annots = page.node.get(PDFName.of('Annots')) || pdf.context.obj([]);
-          const annotsArray = pdf.context.lookup(annots);
-          if (annotsArray && 'push' in annotsArray) {
-            (annotsArray as { push: (val: unknown) => void }).push(linkAnnot);
-          } else {
-            page.node.set(PDFName.of('Annots'), pdf.context.obj([linkAnnot]));
-          }
-        }
-        
-        curX += itemWidth;
-        if (i < contactItems.length - 1) {
-          page.drawText(separator, { x: curX, y: cursorY, size, font: fReg, color: cMid });
-          curX += sepWidth;
-        }
-      }
-      cursorY -= size + gapBelow;
-    }
-
-    // Header divider
-    cursorY -= 4;
-    drawRule(0.8, cRule);
-    cursorY -= 14;
-
-    // ── SECTION 2 — Summary ──────────────────────────────────────────────
-    // Prefer AI-generated summary; fall back to profile bio; skip generic fallbacks
-    const summaryText = (() => {
-      const gen = (content.summary ?? '').trim();
-      if (gen && gen !== 'Generated portfolio summary.') return gen;
-      return profile.summary.trim();
-    })();
-    if (summaryText) {
-      drawSectionHeader('Summary');
-      drawBlock(summaryText, fReg, S.body, cDark, ML, CW, 4);
-      cursorY -= 1;
-    }
-
-    // ── SECTION 3 — Skills & Keywords ────────────────────────────────────
-    const contentWithCategories = content as unknown as {
-      summary?: string;
-      sections?: Array<{ title?: string; bullets?: string[] }>;
-      resumeBullets?: string[];
-      keywords?: string[];
-      skillCategories?: Array<{ category?: string; skills?: string[] }>;
-    };
-    const skillCategories = (contentWithCategories.skillCategories ?? [])
-      .filter((cat) => cat.category && cat.skills && cat.skills.length > 0);
-
-    if (skillCategories.length > 0) {
-      // Grouped skills rendering
-      drawSectionHeader('Technical Skills');
-      for (const cat of skillCategories) {
-        const catName = (cat.category ?? 'Other').trim();
-        const skills = (cat.skills ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 15);
-        if (skills.length === 0) continue;
-
-        // Category label (bold) followed by skills on the same line
-        const labelText = `${catName}:`;
-        const labelWidth = fBold.widthOfTextAtSize(labelText, S.body);
-        const skillsText = skills.join(', ');
-        const skillsX = ML + labelWidth + 6;
-        const skillsMaxW = CW - labelWidth - 6;
-
-        ensureRoom(S.body + 8);
-        page.drawText(labelText, { x: ML, y: cursorY, size: S.body, font: fBold, color: cDark });
-        const skillLines = wrapText(skillsText, fReg, S.body, skillsMaxW);
-        for (let i = 0; i < skillLines.length; i++) {
-          if (i > 0) {
-            cursorY -= S.body + 3;
-            ensureRoom(S.body + 3);
-          }
-          page.drawText(skillLines[i], { x: i === 0 ? skillsX : ML + 12, y: cursorY, size: S.body, font: fReg, color: cDark });
-        }
-        cursorY -= S.body + 6;
-      }
-      cursorY -= 1;
-    } else if (content.keywords && content.keywords.length > 0) {
-      // Fallback: flat keywords list (legacy behavior)
-      drawSectionHeader('Technical Skills');
-      const skillsLine = content.keywords
-        .map((k) => k.trim())
-        .filter(Boolean)
-        .slice(0, 28)
-        .join('  •  ');
-      drawBlock(skillsLine, fReg, S.body, cDark, ML, CW, 4);
-      cursorY -= 1;
-    }
-
-    const contentAny = content as unknown as Record<string, unknown>;
-    const experienceAny = (contentAny.experience ?? contentAny.workExperience) as unknown;
-    const projectsAny = contentAny.projects as unknown;
-
-    const experienceEntries = Array.isArray(experienceAny) ? experienceAny : [];
-    const projectEntries = Array.isArray(projectsAny) ? projectsAny : [];
-
-    // ── SECTION 4 — Work Experience ──────────────────────────────────────
-    if (experienceEntries.length > 0) {
-      drawSectionHeader('Work Experience');
-      for (const entry of experienceEntries.slice(0, 10)) {
-        const e = entry as Record<string, unknown>;
-        const role = String((e.role ?? e.title ?? '') as string).trim();
-        const company = String((e.company ?? e.organization ?? e.employer ?? '') as string).trim();
-        const duration = String((e.duration ?? e.dates ?? e.timeframe ?? '') as string).trim();
-        const left = [role, company].filter(Boolean).join(' — ');
-
-        const bulletsRaw = (e.bullets ?? e.highlights ?? e.achievements) as unknown;
-        const bullets = Array.isArray(bulletsRaw)
-          ? bulletsRaw.map((b) => String(b).trim()).filter(Boolean)
-          : [];
-
-        if (!left && bullets.length === 0) continue;
-
-        drawLeftRightLine({ left: left || 'Role', right: duration, sizeLeft: S.subhead, fontLeft: fBold, gapBelow: 4 });
-        for (const bullet of bullets.slice(0, 5)) {
-          drawBullet(bullet);
-        }
-        cursorY -= 2;
-      }
-    }
-
-    // ── SECTION 5 — Projects ─────────────────────────────────────────────
-    const shouldRenderProjectsFromStructured = projectEntries.length > 0;
-    if (shouldRenderProjectsFromStructured) {
-      drawSectionHeader('Projects');
-      for (const entry of projectEntries.slice(0, 12)) {
-        const p = entry as Record<string, unknown>;
-        const name = String((p.name ?? p.title ?? '') as string).trim();
-        const duration = String((p.duration ?? p.dates ?? p.timeframe ?? '') as string).trim();
-        const techRaw = (p.techStack ?? p.tech ?? p.stack) as unknown;
-        const tech = Array.isArray(techRaw) ? techRaw.map((t) => String(t).trim()).filter(Boolean) : [];
-        const bulletsRaw = (p.bullets ?? p.highlights ?? p.achievements ?? p.descriptionBullets) as unknown;
-        const bullets = Array.isArray(bulletsRaw)
-          ? bulletsRaw.map((b) => String(b).trim()).filter(Boolean)
-          : [];
-
-        if (!name && bullets.length === 0) continue;
-
-        // Project name + duration on the same line
-        drawLeftRightLine({ left: name || 'Project', right: duration, sizeLeft: S.subhead, fontLeft: fBold, gapBelow: 2 });
-        // Tech stack on its own line with parentheses for clarity
-        if (tech.length > 0) {
-          const techLine = tech.slice(0, 18).join(' + ');
-          drawBlock(`Stack: ${techLine}`, fReg, S.meta, cAccent, ML, CW, 3);
-          cursorY -= 2;
-        }
-        for (const bullet of bullets.slice(0, 4)) {
-          drawBullet(bullet);
-        }
-        cursorY -= 4;
-      }
-    }
-
-    // Fallback to existing generation sections if no structured projects were provided.
-    if (!shouldRenderProjectsFromStructured && content.sections && content.sections.length > 0) {
-      drawSectionHeader('Projects');
-      for (const section of content.sections) {
-        const raw = section as unknown as {
-          title?: string;
-          bullets?: string[];
-          duration?: string;
-          dates?: string;
-          timeframe?: string;
-          company?: string;
-          role?: string;
-          techStack?: string[];
-          tech?: string[];
-        };
-
-        const name = (raw.title ?? '').trim();
-        const duration = (raw.duration ?? raw.dates ?? raw.timeframe ?? '').trim();
-        const tech = Array.isArray(raw.techStack)
-          ? raw.techStack
-          : Array.isArray(raw.tech)
-            ? raw.tech
-            : [];
-        const bullets = (raw.bullets ?? []).map((b) => b.trim()).filter(Boolean);
-
-        if (!name && bullets.length === 0) continue;
-
-        drawLeftRightLine({ left: name || 'Project', right: duration, sizeLeft: S.subhead, fontLeft: fBold, gapBelow: 2 });
-        if (tech.length > 0) {
-          const techLine = tech.map((t) => t.trim()).filter(Boolean).slice(0, 18).join(' + ');
-          if (techLine) {
-            drawBlock(`Stack: ${techLine}`, fReg, S.meta, cAccent, ML, CW, 3);
-            cursorY -= 2;
-          }
-        }
-        for (const bullet of bullets.slice(0, 4)) {
-          drawBullet(bullet);
-        }
-        cursorY -= 4;
-      }
-    }
-
-    // ── SECTION 6 — Highlights ───────────────────────────────────────────
-    if (content.resumeBullets && content.resumeBullets.length > 0) {
-      drawSectionHeader('Highlights');
-      for (const bullet of content.resumeBullets.slice(0, 8)) {
-        if (bullet.trim()) drawBullet(bullet.trim());
-      }
-    }
-
-    // ── SECTION 7 — Education ────────────────────────────────────────────
-    if (profile.education && profile.education.length > 0) {
-      const validEdu = profile.education.filter((e: { degree: string; institution: string }) => e.degree.trim() || e.institution.trim());
-      if (validEdu.length > 0) {
-        drawSectionHeader('Education');
-        for (const edu of validEdu) {
-          const degree = (edu.degree ?? '').trim();
-          const inst = (edu.institution ?? '').trim();
-          const year = (edu.year ?? '').trim();
-
-          const headline = [degree, inst].filter(Boolean).join(' — ');
-          if (!headline && !year) continue;
-
-          drawLeftRightLine({ left: headline, right: year, sizeLeft: S.body, sizeRight: S.meta, fontLeft: fBold, fontRight: fReg, gapBelow: 2 });
-          cursorY -= 3;
-        }
-      }
-    }
-
-    // ── Footer on every page ─────────────────────────────────────────────
-    const pageCount = pdf.getPageCount();
-    for (let i = 0; i < pageCount; i++) {
-      const p = pdf.getPage(i);
-      p.drawLine({
-        start: { x: ML, y: MB - 8 },
-        end:   { x: PAGE_W - MR, y: MB - 8 },
-        thickness: 0.4,
-        color: cRule,
-      });
-      const label = `Page ${i + 1} of ${pageCount}`;
-      const w = fReg.widthOfTextAtSize(label, S.small);
-      p.drawText(label, { x: PAGE_W - MR - w, y: MB - 20, size: S.small, font: fReg, color: cMid });
-    }
-
-    // ── Serialise ─────────────────────────────────────────────────────────
-    const bytes  = await pdf.save();
-    const base64 = Buffer.from(bytes).toString('base64');
+    logTelemetry({
+      level: 'info',
+      operation: 'vault.exportPortfolioPdf.renderStats',
+      timestamp: new Date().toISOString(),
+      context: { generationId, pageCount, renderStats, metrics: completeness.metrics },
+    });
 
     await PortfolioFeedback.create({
       userId,
       generationId,
       eventType: 'export_pdf',
-      metadata: { bytes: bytes.length },
+      metadata: { bytes: bytes.length, pageCount, renderStats },
     });
 
     return {
       fileName: `adjusted-resume-${generationId}.pdf`,
       base64,
+      completeness,
     };
   });
 }
-
 export async function recordGenerationFeedback(input: unknown) {
   return withTelemetry('vault.recordGenerationFeedback', {}, async () => {
     const user = await requireSessionUser();
@@ -1931,17 +1093,10 @@ export async function getProfile() {
     await connectToDatabase();
 
     const doc = await UserProfile.findOne({ userId: user.id }).lean();
-    return {
-      name:      (doc?.name      as string | undefined) ?? '',
-      title:     (doc?.title     as string | undefined) ?? '',
-      email:     (doc?.email     as string | undefined) ?? '',
-      phone:     (doc?.phone     as string | undefined) ?? '',
-      location:  (doc?.location  as string | undefined) ?? '',
-      linkedin:  (doc?.linkedin  as string | undefined) ?? '',
-      portfolio: (doc?.portfolio as string | undefined) ?? '',
-      summary:   (doc?.summary   as string | undefined) ?? '',
-      education: (doc?.education as Array<{ degree: string; institution: string; year: string }> | undefined) ?? [],
-    };
+    const profile = normalizeCvProfile(doc as Partial<CvProfile> | null);
+    const completeness = getProfileCompletenessSummary(profile);
+
+    return { ...profile, completeness };
   });
 }
 

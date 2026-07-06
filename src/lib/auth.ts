@@ -2,6 +2,11 @@ import { betterAuth } from 'better-auth';
 import { mongodbAdapter } from '@better-auth/mongo-adapter';
 import { MongoClient } from 'mongodb';
 import { nextCookies } from 'better-auth/next-js';
+import {
+  type SocialProviderId,
+} from '@/lib/auth-providers';
+
+export { getEnabledSocialProviders, type SocialProviderId } from '@/lib/auth-providers';
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
@@ -42,12 +47,14 @@ if (!MONGODB_URI) {
 const mongoClient = new MongoClient(MONGODB_URI);
 const db = mongoClient.db(MONGODB_DB_NAME);
 
-const socialProviders: Record<
-  string,
-  {
-    clientId: string;
-    clientSecret: string;
-  }
+const socialProviders: Partial<
+  Record<
+    SocialProviderId,
+    {
+      clientId: string;
+      clientSecret: string;
+    }
+  >
 > = {};
 
 if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {

@@ -1,5 +1,4 @@
-import PDFParser from 'pdf2json';
-import type { Output, Page, Text, TextRun } from 'pdf2json';
+import { PDFParse } from 'pdf-parse';
 
 type ParsedResume = {
   text: string;
@@ -7,6 +6,8 @@ type ParsedResume = {
 };
 
 const MAX_RESUME_TEXT = 80_000;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const PDF_PARSE_TIMEOUT_MS = 45_000;
 
 function truncateText(input: string) {
   if (input.length <= MAX_RESUME_TEXT) {
@@ -15,43 +16,53 @@ function truncateText(input: string) {
   return input.slice(0, MAX_RESUME_TEXT);
 }
 
-function decodePdfToken(value: string) {
-  try {
-    return decodeURIComponent(value.replace(/\+/g, '%20'));
-  } catch {
-    return value;
-  }
+function normalizeExtractedText(input: string) {
+  return input.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-async function parsePdfTextFromBuffer(buffer: Buffer) {
-  return new Promise<string>((resolve, reject) => {
-    const parser = new PDFParser();
-
-    parser.once('pdfParser_dataError', (error) => {
-      const parserError =
-        typeof error === 'object' && error !== null && 'parserError' in error
-          ? (error as { parserError?: Error }).parserError
-          : undefined;
-      reject(parserError ?? new Error('Unknown PDF parser error'));
-    });
-
-    parser.once('pdfParser_dataReady', (pdfData: Output) => {
-      const pages: Page[] = pdfData.Pages ?? [];
-      const pageTexts = pages.map((page: Page) => {
-        const tokens = (page.Texts ?? []).flatMap((entry: Text) =>
-          (entry.R ?? []).map((run: TextRun) => decodePdfToken(run.T ?? ''))
-        );
-        return tokens.join(' ').replace(/\s+/g, ' ').trim();
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
       });
-
-      resolve(pageTexts.filter(Boolean).join('\n').trim());
-    });
-
-    parser.parseBuffer(buffer);
   });
 }
 
+async function parsePdfTextFromBuffer(buffer: Buffer) {
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+
+  try {
+    const result = await withTimeout(
+      parser.getText({
+        parseHyperlinks: false,
+        parsePageInfo: false,
+      }),
+      PDF_PARSE_TIMEOUT_MS,
+      'PDF parsing timed out. Try a simpler PDF or upload a .txt export of your resume.'
+    );
+
+    return normalizeExtractedText(result.text);
+  } finally {
+    await parser.destroy().catch(() => undefined);
+  }
+}
+
+function assertFileSize(file: File) {
+  if (file.size > MAX_FILE_BYTES) {
+    throw new Error('Resume file is too large. Please upload a PDF under 10 MB.');
+  }
+}
+
 export async function parseResumeFile(file: File): Promise<ParsedResume> {
+  assertFileSize(file);
+
   const mime = file.type.toLowerCase();
 
   if (mime.includes('pdf') || file.name.toLowerCase().endsWith('.pdf')) {
@@ -60,7 +71,9 @@ export async function parseResumeFile(file: File): Promise<ParsedResume> {
       const parsedText = await parsePdfTextFromBuffer(bytes);
 
       if (!parsedText) {
-        throw new Error('No text content found in PDF');
+        throw new Error(
+          'No text found in this PDF. It may be scanned/image-only — export a text-based PDF or upload .txt/.md instead.'
+        );
       }
 
       return {
@@ -73,10 +86,18 @@ export async function parseResumeFile(file: File): Promise<ParsedResume> {
     }
   }
 
-  const text = await file.text();
+  const text = normalizeExtractedText(await file.text());
+  if (!text) {
+    throw new Error('Uploaded file is empty.');
+  }
 
   return {
-    text: truncateText(text.trim()),
+    text: truncateText(text),
     detectedType: 'text',
   };
 }
+
+export const RESUME_UPLOAD_LIMITS = {
+  maxFileBytes: MAX_FILE_BYTES,
+  maxFileLabel: '10 MB',
+} as const;

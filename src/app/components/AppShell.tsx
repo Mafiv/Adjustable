@@ -83,9 +83,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 export function AppMain({ children }: { children: React.ReactNode }) {
+  const { collapsed } = useSidebar();
+
   return (
     <main
-      className="app-shell-main"
+      className={`app-shell-main ${collapsed ? 'sidebar-collapsed' : ''}`}
       style={{
         flex: 1,
         minHeight: '100vh',

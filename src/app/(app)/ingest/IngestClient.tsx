@@ -14,6 +14,7 @@ type ShredResult = {
   insertedCount?: number;
   personalInfoExtracted?: boolean;
   profileAutoUpdated?: boolean;
+  profileFieldsNotInResume?: string[];
   entities?: Array<{ id: string; title: string; techStack?: string[]; tags?: string[]; impactScore?: number }>;
 };
 
@@ -75,6 +76,18 @@ function ResultContent({ data }: { data: unknown }) {
           <span className="w-px h-3 bg-[var(--card-border)]" />
           <span>Profile auto-fill: {d.profileAutoUpdated ? '✓ updated' : '○ no changes'}</span>
         </div>
+
+        {d.profileFieldsNotInResume && d.profileFieldsNotInResume.length > 0 && (
+          <div className="text-xs text-[var(--warn-text)] bg-[var(--warn-bg)] border border-[var(--warn-border)] rounded-lg p-3 leading-relaxed">
+            <p className="font-semibold m-0 mb-1">Not found in your uploaded CV:</p>
+            <p className="m-0">{d.profileFieldsNotInResume.join(', ')}.</p>
+            <p className="m-0 mt-1.5">
+              Add these on your{' '}
+              <a href="/profile" className="underline font-semibold">Profile</a>{' '}
+              page for a more complete resume.
+            </p>
+          </div>
+        )}
         
         <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
           {d.entities.map((e, idx) => (
@@ -211,10 +224,11 @@ export default function IngestClient({
 
   const shredPhaseLabel = useMemo(() => {
     if (!isShredPending) return '';
-    if (shredProgress < 18) return '📤 Uploading file';
-    if (shredProgress < 45) return '🔍 Parsing resume';
-    if (shredProgress < 75) return '🧩 Extracting entities';
-    return '💾 Embedding and saving';
+    if (shredProgress < 12) return '📤 Uploading file';
+    if (shredProgress < 28) return '📄 Extracting resume text';
+    if (shredProgress < 55) return '🤖 AI: vault entities + profile (parallel)';
+    if (shredProgress < 78) return '🧬 Batch embedding vault entries';
+    return '💾 Saving to your vault';
   }, [isShredPending, shredProgress]);
 
   return (
@@ -298,6 +312,10 @@ export default function IngestClient({
                         accept=".pdf,.txt,.md,.markdown"
                         className="w-full px-4 py-2 border border-[var(--input-border)] rounded-xl focus:ring-2 focus:ring-[var(--brand-600)] focus:border-transparent transition-all file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[var(--chip-bg)] file:text-[var(--chip-text)] hover:file:bg-[var(--summary-bg)] bg-[var(--input-bg)] color-[var(--input-text)]"
                       />
+                      <p className="mt-2 text-xs text-[var(--text-subtle)] leading-relaxed">
+                        PDF, TXT, or Markdown up to 10 MB. Text-based PDFs work best; scanned image PDFs may fail.
+                        Processing usually takes 30–90 seconds while AI extracts your vault and profile.
+                      </p>
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-[var(--label-color)] mb-2">

@@ -1,5 +1,6 @@
 'use client';
 
+import { downloadBase64Pdf } from '@/lib/pdf-client';
 import { useActionState, useEffect, useState } from 'react';
 
 type ActionState = { status: 'idle' | 'success' | 'error'; message?: string; data?: unknown };
@@ -24,17 +25,6 @@ type AnalyticsData = {
   events?: Record<string, number>;
   rates?: { positiveRate?: number; exportToApplyRate?: number };
 };
-
-function downloadBase64Pdf(fileName: string, base64: string) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const blob = new Blob([bytes], { type: 'application/pdf' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = fileName; a.click();
-  URL.revokeObjectURL(url);
-}
 
 const inputStyle: React.CSSProperties = {
   borderRadius: '10px',
