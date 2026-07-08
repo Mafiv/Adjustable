@@ -261,9 +261,19 @@ function normalizeAtomicEntity(
 
 type AtomicEntity = z.infer<typeof atomicEntitySchema>;
 
+type IngestStage = {
+  name: string;
+  durationMs: number;
+  detail?: string;
+};
+
+function recordIngestStage(stages: IngestStage[], name: string, startedAt: number, detail?: string) {
+  stages.push({ name, durationMs: Date.now() - startedAt, detail });
+}
+
 async function extractResumeEntities(resumeText: string, maxEntities: number) {
   try {
-    const { object } = await generateObjectWithNativeInference({
+    const { object, modelId } = await generateObjectWithNativeInference({
       schema: z.object({
         entities: z.array(atomicEntityLooseSchema),
       }),
@@ -279,18 +289,25 @@ async function extractResumeEntities(resumeText: string, maxEntities: number) {
 
     return {
       extractionMode: 'llm' as const,
+      modelId,
       entities: object.entities
         .slice(0, maxEntities)
         .map((entity, index) => normalizeAtomicEntity(entity, index)),
     };
   } catch (error) {
-    if (!isModelNotFoundError(error)) {
-      throw error;
-    }
+    const message = error instanceof Error ? error.message : 'Unknown LLM error';
+    logTelemetry({
+      level: 'error',
+      operation: 'vault.extractResumeEntities.fallback',
+      timestamp: new Date().toISOString(),
+      message,
+    });
 
     return {
       extractionMode: 'heuristic' as const,
+      modelId: undefined,
       entities: heuristicResumeEntities(resumeText, maxEntities),
+      llmError: message,
     };
   }
 }
@@ -318,32 +335,54 @@ async function updateProfileFromResume(userId: string, resumeText: string) {
       await UserProfile.findOneAndUpdate(
         { userId },
         { $set: mergedProfile },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
       profileAutoUpdated = true;
     }
   };
 
   try {
-    const { object } = await generateObjectWithNativeInference({
+    const { object, modelId } = await generateObjectWithNativeInference({
       schema: resumePersonalInfoSchema,
       prompt: buildResumeExtractionPrompt(resumeText),
     });
     personalInfo = object;
     await applyResumeProfile(false);
-  } catch {
+    return {
+      personalInfoExtracted: true,
+      profileAutoUpdated,
+      profileFieldsNotInResume,
+      profileMode: 'llm' as const,
+      profileModelId: modelId,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Profile LLM failed';
+    logTelemetry({
+      level: 'error',
+      operation: 'vault.updateProfileFromResume.fallback',
+      timestamp: new Date().toISOString(),
+      message,
+    });
+
     try {
       await applyResumeProfile(true);
-    } catch {
-      // Best effort only.
+    } catch (fallbackError) {
+      logTelemetry({
+        level: 'error',
+        operation: 'vault.updateProfileFromResume.heuristics_failed',
+        timestamp: new Date().toISOString(),
+        message: fallbackError instanceof Error ? fallbackError.message : 'Heuristic profile failed',
+      });
     }
-  }
 
-  return {
-    personalInfoExtracted: Boolean(personalInfo),
-    profileAutoUpdated,
-    profileFieldsNotInResume,
-  };
+    return {
+      personalInfoExtracted: false,
+      profileAutoUpdated,
+      profileFieldsNotInResume,
+      profileMode: 'heuristic' as const,
+      profileError: message,
+    };
+  }
 }
 
 async function insertShreddedVaultEntities(userId: string, insertableEntities: AtomicEntity[]) {
@@ -541,13 +580,29 @@ export async function shredResumeToVault(input: unknown) {
     const user = await requireSessionUser();
     const { resumeText, maxEntities } = shredResumeSchema.parse(input);
     const userId = user.id;
+    const ingestStages: IngestStage[] = [];
 
     await connectToDatabase();
 
-    const [{ extractionMode, entities }, profileResult] = await Promise.all([
-      extractResumeEntities(resumeText, maxEntities),
-      updateProfileFromResume(userId, resumeText),
-    ]);
+    let stageStart = Date.now();
+    const entityResult = await extractResumeEntities(resumeText, maxEntities);
+    recordIngestStage(
+      ingestStages,
+      'extract_entities',
+      stageStart,
+      entityResult.extractionMode + (entityResult.llmError ? ` (${entityResult.llmError})` : '')
+    );
+
+    stageStart = Date.now();
+    const profileResult = await updateProfileFromResume(userId, resumeText);
+    recordIngestStage(
+      ingestStages,
+      'extract_profile',
+      stageStart,
+      profileResult.profileMode + (profileResult.profileError ? ' (fallback)' : '')
+    );
+
+    const { extractionMode, entities } = entityResult;
 
     const qualityEntities = entities.filter(isQualityEntity);
     const seenFingerprints = new Set<string>();
@@ -567,6 +622,7 @@ export async function shredResumeToVault(input: unknown) {
       buildFingerprint({ title: entity.title, description: entity.description })
     );
 
+    stageStart = Date.now();
     const existing =
       fingerprints.length > 0
         ? await Project.find({ userId, fingerprint: { $in: fingerprints } }, { fingerprint: 1 }).lean()
@@ -578,11 +634,21 @@ export async function shredResumeToVault(input: unknown) {
           buildFingerprint({ title: entity.title, description: entity.description })
         )
     );
+    recordIngestStage(
+      ingestStages,
+      'dedupe',
+      stageStart,
+      `${insertableEntities.length} new / ${uniqueEntities.length} unique`
+    );
 
+    stageStart = Date.now();
     const inserted = await insertShreddedVaultEntities(userId, insertableEntities);
+    recordIngestStage(ingestStages, 'embed_and_save', stageStart, `${inserted.length} inserted`);
 
     revalidatePath('/vault');
     revalidatePath('/profile');
+
+    const totalDurationMs = ingestStages.reduce((sum, stage) => sum + stage.durationMs, 0);
 
     return {
       extractionMode,
@@ -598,6 +664,9 @@ export async function shredResumeToVault(input: unknown) {
         impactScore: doc.impactScore,
       })),
       ...profileResult,
+      ingestStages,
+      totalDurationMs,
+      resumeTextLength: resumeText.length,
     };
   });
 }

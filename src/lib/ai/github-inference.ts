@@ -6,13 +6,15 @@
 import ModelClient, { isUnexpected } from '@azure-rest/ai-inference';
 import { AzureKeyCredential } from '@azure/core-auth';
 import { z } from 'zod';
+import { getIngestLlmTimeoutMs, withTimeout } from '@/lib/async-timeout';
+import { withRetryOnRateLimit } from '@/lib/ai/retry';
 
 export const GITHUB_MODELS_ENDPOINT = 'https://models.github.ai/inference';
 
 const DEFAULT_CHAT_MODEL_IDS = [
-  'openai/gpt-5',
   'openai/gpt-5-mini',
   'openai/gpt-5-nano',
+  'openai/gpt-5',
 ] as const;
 
 export function getChatModelIds(): string[] {
@@ -107,19 +109,27 @@ export async function generateObjectWithNativeInference<TSchema extends z.ZodTyp
     const modelId = chatModelIds[index];
 
     try {
-      const response = await inferenceClient.path('/chat/completions').post({
-        body: buildChatCompletionBody(modelId, [
-          {
-            role: 'system',
-            content:
-              'You must return only valid JSON object output matching the requested schema. Do not include markdown fences.',
-          },
-          {
-            role: 'user',
-            content: params.prompt,
-          },
-        ]),
-      });
+      const response = await withRetryOnRateLimit(
+        () =>
+          withTimeout(
+            inferenceClient.path('/chat/completions').post({
+              body: buildChatCompletionBody(modelId, [
+                {
+                  role: 'system',
+                  content:
+                    'You must return only valid JSON object output matching the requested schema. Do not include markdown fences.',
+                },
+                {
+                  role: 'user',
+                  content: params.prompt,
+                },
+              ]),
+            }),
+            getIngestLlmTimeoutMs(),
+            `Model ${modelId} timed out after ${Math.round(getIngestLlmTimeoutMs() / 1000)}s. Try again or use a faster model in AI_CHAT_MODELS.`
+          ),
+        { label: `Chat completion (${modelId})` }
+      );
 
       if (isUnexpected(response)) {
         const message = getUnexpectedErrorMessage(response);

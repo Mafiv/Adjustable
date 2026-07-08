@@ -14,7 +14,13 @@ type ShredResult = {
   insertedCount?: number;
   personalInfoExtracted?: boolean;
   profileAutoUpdated?: boolean;
+  profileMode?: string;
+  profileError?: string;
   profileFieldsNotInResume?: string[];
+  parseDurationMs?: number;
+  resumeTextLength?: number;
+  totalDurationMs?: number;
+  ingestStages?: Array<{ name: string; durationMs: number; detail?: string }>;
   entities?: Array<{ id: string; title: string; techStack?: string[]; tags?: string[]; impactScore?: number }>;
 };
 
@@ -86,6 +92,32 @@ function ResultContent({ data }: { data: unknown }) {
               <a href="/profile" className="underline font-semibold">Profile</a>{' '}
               page for a more complete resume.
             </p>
+          </div>
+        )}
+
+        {d.profileError && (
+          <div className="text-xs text-[var(--warn-text)] bg-[var(--warn-bg)] border border-[var(--warn-border)] rounded-lg p-3 leading-relaxed">
+            <p className="font-semibold m-0 mb-1">Profile AI extraction failed</p>
+            <p className="m-0">Used heuristic fallback instead. {d.profileError}</p>
+          </div>
+        )}
+
+        {d.ingestStages && d.ingestStages.length > 0 && (
+          <div className="text-xs text-[var(--text-muted)] bg-[var(--summary-bg)] border border-[var(--summary-border)] rounded-lg p-3 leading-relaxed">
+            <p className="font-semibold m-0 mb-2 text-[var(--text-primary)]">
+              Pipeline timing{d.totalDurationMs ? ` — ${(d.totalDurationMs / 1000).toFixed(1)}s total` : ''}
+            </p>
+            <ul className="m-0 pl-4 flex flex-col gap-1">
+              {d.parseDurationMs !== undefined && (
+                <li>parse_file: {(d.parseDurationMs / 1000).toFixed(1)}s{d.resumeTextLength ? ` (${d.resumeTextLength} chars)` : ''}</li>
+              )}
+              {d.ingestStages.map((stage) => (
+                <li key={stage.name}>
+                  {stage.name}: {(stage.durationMs / 1000).toFixed(1)}s
+                  {stage.detail ? ` — ${stage.detail}` : ''}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         
@@ -180,7 +212,14 @@ function ResultPanel({ state, title }: { state: ActionState; title: string }) {
           {isError ? '❌ Error' : `✓ ${title}`}
         </p>
         {state.message && (
-          <p className="text-sm text-[var(--danger-text)] mb-2 opacity-90">{state.message}</p>
+          <p className={`text-sm mb-2 opacity-90 ${isError ? 'text-[var(--danger-text)]' : 'text-[var(--text-muted)]'}`}>
+            {state.message}
+          </p>
+        )}
+        {isError && typeof state.data === 'object' && state.data !== null && 'debugId' in state.data && (
+          <p className="text-xs text-[var(--text-subtle)] m-0">
+            If this keeps happening, wait 60s and retry with fewer max entities. GitHub Models has strict rate limits on free tokens.
+          </p>
         )}
         {!isError && !!state.data && <ResultContent data={state.data} />}
       </motion.div>
@@ -199,9 +238,27 @@ export default function IngestClient({
   const [addState, addAction, isAddPending] = useActionState(addProjectAction, init);
   const [shredProgress, setShredProgress] = useState(0);
   const [activeTab, setActiveTab] = useState<'resume' | 'project'>('resume');
+  const [elapsedSec, setElapsedSec] = useState(0);
 
   useEffect(() => {
     if (!isShredPending) {
+      setElapsedSec(0);
+      return;
+    }
+
+    const tick = window.setInterval(() => {
+      setElapsedSec((prev) => prev + 1);
+    }, 1000);
+
+    return () => window.clearInterval(tick);
+  }, [isShredPending]);
+
+  useEffect(() => {
+    if (!isShredPending) {
+      if (shredState.status === 'error') {
+        setShredProgress(0);
+        return;
+      }
       if (shredProgress > 0 && shredProgress < 100) {
         setShredProgress(100);
         const t = window.setTimeout(() => setShredProgress(0), 800);
@@ -209,27 +266,36 @@ export default function IngestClient({
       }
       return;
     }
+
     setShredProgress((c) => (c > 2 ? c : 2));
+
     const iv = window.setInterval(() => {
       setShredProgress((c) => {
-        if (c >= 92) return c;
-        if (c < 25) return Math.min(c + 8, 92);
-        if (c < 55) return Math.min(c + 5, 92);
-        if (c < 80) return Math.min(c + 3, 92);
-        return Math.min(c + 1, 92);
+        if (c < 25) return Math.min(c + 6, 25);
+        if (c < 55) return Math.min(c + 4, 55);
+        if (c < 80) return Math.min(c + 2, 80);
+        if (c < 95) return Math.min(c + 0.4, 95);
+        return Math.min(c + 0.15, 99);
       });
-    }, 350);
+    }, 400);
+
     return () => window.clearInterval(iv);
-  }, [isShredPending, shredProgress]);
+  }, [isShredPending, shredProgress, shredState.status]);
 
   const shredPhaseLabel = useMemo(() => {
     if (!isShredPending) return '';
-    if (shredProgress < 12) return '📤 Uploading file';
-    if (shredProgress < 28) return '📄 Extracting resume text';
-    if (shredProgress < 55) return '🤖 AI: vault entities + profile (parallel)';
-    if (shredProgress < 78) return '🧬 Batch embedding vault entries';
-    return '💾 Saving to your vault';
-  }, [isShredPending, shredProgress]);
+    const suffix =
+      elapsedSec > 20
+        ? ` (${elapsedSec}s — AI can take up to 2 min)`
+        : elapsedSec > 0
+          ? ` (${elapsedSec}s)`
+          : '';
+    if (shredProgress < 12) return `📤 Uploading file${suffix}`;
+    if (shredProgress < 28) return `📄 Extracting resume text${suffix}`;
+    if (shredProgress < 55) return `🤖 AI: vault entities${suffix}`;
+    if (shredProgress < 78) return `👤 AI: profile extraction${suffix}`;
+    return `🧬 Embedding & saving${suffix}`;
+  }, [isShredPending, shredProgress, elapsedSec]);
 
   return (
     <div className="min-h-screen bg-[var(--app-main-bg)]">
@@ -314,7 +380,7 @@ export default function IngestClient({
                       />
                       <p className="mt-2 text-xs text-[var(--text-subtle)] leading-relaxed">
                         PDF, TXT, or Markdown up to 10 MB. Text-based PDFs work best; scanned image PDFs may fail.
-                        Processing usually takes 30–90 seconds while AI extracts your vault and profile.
+                        Processing usually takes 1–3 minutes. GitHub Models may rate-limit; if ingest fails, wait 60s and retry with fewer entities.
                       </p>
                     </div>
                     <div>
@@ -326,9 +392,12 @@ export default function IngestClient({
                         type="number"
                         min={1}
                         max={30}
-                        defaultValue={12}
+                        defaultValue={8}
                         className="w-full px-4 py-2 border border-[var(--input-border)] rounded-xl focus:ring-2 focus:ring-[var(--brand-600)] focus:border-transparent bg-[var(--input-bg)] text-[var(--input-text)]"
                       />
+                      <p className="mt-2 text-xs text-[var(--text-subtle)]">
+                        Lower this (e.g. 6) if GitHub rate-limits you during embedding.
+                      </p>
                     </div>
                   </div>
 
@@ -361,6 +430,11 @@ export default function IngestClient({
                       <span>{shredPhaseLabel}</span>
                       <span>{Math.round(shredProgress)}%</span>
                     </div>
+                    {shredProgress >= 80 && isShredPending && (
+                      <p className="text-xs text-[var(--text-subtle)] mb-2 m-0">
+                        Still working — the bar slows near the end while the server finishes AI calls. This is normal.
+                      </p>
+                    )}
                     <div className="h-2 bg-[var(--card-border)] rounded-full overflow-hidden">
                       <motion.div
                         className="h-full bg-[var(--brand-600)]"
